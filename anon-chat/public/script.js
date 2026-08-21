@@ -78,6 +78,16 @@
   }
   const myDeviceId = getDeviceId();
 
+  const USER_AVATAR_KEY = 'wavelength_avatar';
+
+function getMyAvatar() {
+  return localStorage.getItem(USER_AVATAR_KEY) || 'avatars/boy1.png';
+}
+
+function saveMyAvatar(path) {
+  localStorage.setItem(USER_AVATAR_KEY, path);
+}
+
   // ---------- Contacts (legacy quick-reconnect codes, stored locally) ----------
   const CONTACTS_KEY = 'wavelength_contacts';
 
