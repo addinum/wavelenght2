@@ -36,7 +36,7 @@
   const friendDeclineBtn = document.getElementById('friendDeclineBtn');
   const friendCodeToast = document.getElementById('friendCodeToast');
   const friendCodeText = document.getElementById('friendCodeText');
-
+  const avatarPicker = document.getElementById('avatarPicker');
   const inboxBtn = document.getElementById('inboxBtn');
   const inboxBadge = document.getElementById('inboxBadge');
   const inboxBackBtn = document.getElementById('inboxBackBtn');
