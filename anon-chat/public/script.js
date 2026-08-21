@@ -195,16 +195,25 @@
   }
 
   window.addEventListener('popstate', () => {
-    if (!screens.chat.classList.contains('hidden')) {
-      const reallyLeave = confirm('Leave this chat and go back to the main screen?');
-      if (reallyLeave) {
-        chatHistoryPushed = false;
-        exitChatToLanding();
-      } else {
-        pushChatHistoryState();
-      }
-    }
-  });
+
+  if (!screens.thread.classList.contains('hidden')) {
+    currentThreadContactId = null;
+    showScreen('inbox');
+    sendWs('get_contacts');
+    return;
+  }
+
+  if (!screens.inbox.classList.contains('hidden')) {
+    showScreen('landing');
+    return;
+  }
+
+  if (!screens.chat.classList.contains('hidden')) {
+    chatHistoryPushed = false;
+    exitChatToLanding();
+    return;
+  }
+});
 
   function exitChatToLanding() {
     if (ws && ws.readyState === WebSocket.OPEN) {
@@ -632,6 +641,7 @@
     threadAvatar.style.background = avatarColorFor(name);
     threadLog.innerHTML = '';
     threadTypingRow = null;
+    history.pushState({ screen: 'thread' }, '');
     showScreen('thread');
     sendWs('open_thread', { contactId });
     threadInput.focus();
@@ -743,9 +753,10 @@
 
   // ---------- Inbox / Thread navigation ----------
   inboxBtn.addEventListener('click', () => {
-    showScreen('inbox');
-    sendWs('get_contacts');
-  });
+  history.pushState({ screen: 'inbox' }, '');
+  showScreen('inbox');
+  sendWs('get_contacts');
+});
 
   inboxBackBtn.addEventListener('click', () => {
     showScreen('landing');
