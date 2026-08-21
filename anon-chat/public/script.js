@@ -54,6 +54,28 @@
   const recordCancelBtn = document.getElementById('recordCancelBtn');
   const recordSendBtn = document.getElementById('recordSendBtn');
 
+  if (avatarPicker) {
+
+  const options = avatarPicker.querySelectorAll('.avatar-option');
+
+  options.forEach(option => {
+
+    if (option.dataset.avatar === getMyAvatar()) {
+      option.classList.add('selected-avatar');
+    }
+
+    option.addEventListener('click', () => {
+
+      options.forEach(o => o.classList.remove('selected-avatar'));
+
+      option.classList.add('selected-avatar');
+
+      saveMyAvatar(option.dataset.avatar);
+    });
+
+  });
+}
+
   let ws = null;
   let typingTimeout = null;
   let remoteTypingTimeout = null;
