@@ -1251,6 +1251,44 @@ h1 {
 }
 .wa-bubble--them .wa-voice-duration { color: var(--text-faint); }
 
+/* ===== Avatar Picker ===== */
+
+.avatar-picker-section{
+  margin-top:18px;
+}
+
+.avatar-picker-title{
+  color:#ff8fd8;
+  font-size:13px;
+  margin-bottom:10px;
+  font-weight:600;
+}
+
+.avatar-picker{
+  display:grid;
+  grid-template-columns:repeat(5,1fr);
+  gap:10px;
+}
+
+.avatar-option{
+  width:56px;
+  height:56px;
+  border-radius:50%;
+  object-fit:cover;
+  cursor:pointer;
+  border:2px solid transparent;
+  transition:.25s;
+}
+
+.avatar-option:hover{
+  transform:scale(1.08);
+}
+
+.selected-avatar{
+  border:2px solid #ff4db8;
+  box-shadow:0 0 15px rgba(255,77,184,.55);
+}
+
 /* ---------- Strip native "search" input decorations ---------- */
 input[type="search"] {
   -webkit-appearance: none;
