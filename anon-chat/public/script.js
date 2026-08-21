@@ -36,7 +36,7 @@
   const friendDeclineBtn = document.getElementById('friendDeclineBtn');
   const friendCodeToast = document.getElementById('friendCodeToast');
   const friendCodeText = document.getElementById('friendCodeText');
-  const avatarPicker = document.getElementById('avatarPicker');
+
   const inboxBtn = document.getElementById('inboxBtn');
   const inboxBadge = document.getElementById('inboxBadge');
   const inboxBackBtn = document.getElementById('inboxBackBtn');
@@ -53,28 +53,6 @@
   const recordTime = document.getElementById('recordTime');
   const recordCancelBtn = document.getElementById('recordCancelBtn');
   const recordSendBtn = document.getElementById('recordSendBtn');
-
-  if (avatarPicker) {
-
-  const options = avatarPicker.querySelectorAll('.avatar-option');
-
-  options.forEach(option => {
-
-    if (option.dataset.avatar === getMyAvatar()) {
-      option.classList.add('selected-avatar');
-    }
-
-    option.addEventListener('click', () => {
-
-      options.forEach(o => o.classList.remove('selected-avatar'));
-
-      option.classList.add('selected-avatar');
-
-      saveMyAvatar(option.dataset.avatar);
-    });
-
-  });
-}
 
   let ws = null;
   let typingTimeout = null;
@@ -99,16 +77,6 @@
     return id;
   }
   const myDeviceId = getDeviceId();
-
-  const USER_AVATAR_KEY = 'wavelength_avatar';
-
-function getMyAvatar() {
-  return localStorage.getItem(USER_AVATAR_KEY) || 'avatars/boy1.png';
-}
-
-function saveMyAvatar(path) {
-  localStorage.setItem(USER_AVATAR_KEY, path);
-}
 
   // ---------- Contacts (legacy quick-reconnect codes, stored locally) ----------
   const CONTACTS_KEY = 'wavelength_contacts';
@@ -227,25 +195,16 @@ function saveMyAvatar(path) {
   }
 
   window.addEventListener('popstate', () => {
-
-  if (!screens.thread.classList.contains('hidden')) {
-    currentThreadContactId = null;
-    showScreen('inbox');
-    sendWs('get_contacts');
-    return;
-  }
-
-  if (!screens.inbox.classList.contains('hidden')) {
-    showScreen('landing');
-    return;
-  }
-
-  if (!screens.chat.classList.contains('hidden')) {
-    chatHistoryPushed = false;
-    exitChatToLanding();
-    return;
-  }
-});
+    if (!screens.chat.classList.contains('hidden')) {
+      const reallyLeave = confirm('Leave this chat and go back to the main screen?');
+      if (reallyLeave) {
+        chatHistoryPushed = false;
+        exitChatToLanding();
+      } else {
+        pushChatHistoryState();
+      }
+    }
+  });
 
   function exitChatToLanding() {
     if (ws && ws.readyState === WebSocket.OPEN) {
@@ -304,11 +263,7 @@ function saveMyAvatar(path) {
 
     ws.addEventListener('open', () => {
       reconnectAttempts = 0;
-      ws.send(JSON.stringify({
-  type: 'identify',
-  deviceId: myDeviceId,
-  avatar: getMyAvatar()
-}));
+      ws.send(JSON.stringify({ type: 'identify', deviceId: myDeviceId }));
       const name = nameInput.value.trim();
       if (name) ws.send(JSON.stringify({ type: 'set_name', name }));
       refreshInboxBadge();
@@ -677,7 +632,6 @@ function saveMyAvatar(path) {
     threadAvatar.style.background = avatarColorFor(name);
     threadLog.innerHTML = '';
     threadTypingRow = null;
-    history.pushState({ screen: 'thread' }, '');
     showScreen('thread');
     sendWs('open_thread', { contactId });
     threadInput.focus();
@@ -789,10 +743,9 @@ function saveMyAvatar(path) {
 
   // ---------- Inbox / Thread navigation ----------
   inboxBtn.addEventListener('click', () => {
-  history.pushState({ screen: 'inbox' }, '');
-  showScreen('inbox');
-  sendWs('get_contacts');
-});
+    showScreen('inbox');
+    sendWs('get_contacts');
+  });
 
   inboxBackBtn.addEventListener('click', () => {
     showScreen('landing');
