@@ -282,7 +282,11 @@ function saveMyAvatar(path) {
 
     ws.addEventListener('open', () => {
       reconnectAttempts = 0;
-      ws.send(JSON.stringify({ type: 'identify', deviceId: myDeviceId }));
+      ws.send(JSON.stringify({
+  type: 'identify',
+  deviceId: myDeviceId,
+  avatar: getMyAvatar()
+}));
       const name = nameInput.value.trim();
       if (name) ws.send(JSON.stringify({ type: 'set_name', name }));
       refreshInboxBadge();
