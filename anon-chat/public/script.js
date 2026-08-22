@@ -41,6 +41,8 @@
   const inboxBadge = document.getElementById('inboxBadge');
   const inboxBackBtn = document.getElementById('inboxBackBtn');
   const inboxList = document.getElementById('inboxList');
+  const avatarGrid = document.getElementById('avatarGrid');
+  const chatAvatar = document.getElementById('chatAvatar');
   const inboxEmpty = document.getElementById('inboxEmpty');
   const threadBackBtn = document.getElementById('threadBackBtn');
   const threadWithLabel = document.getElementById('threadWithLabel');
@@ -139,17 +141,79 @@
     return div.innerHTML;
   }
 
-  // ---------- Avatar + timestamp helpers (for the WhatsApp-style Inbox) ----------
-  const AVATAR_COLORS = ['#00a884', '#6b5ce7', '#e17055', '#0984e3', '#d63384', '#e8830f', '#20b2aa', '#8e44ad'];
+  // ---------- Timestamp helpers (for the WhatsApp-style Inbox) ----------
 
-  function avatarColorFor(name) {
-    let hash = 0;
-    for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
-    return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
+  // ---------- Chosen-avatar system (10 stylized presets, no real login needed) ----------
+  // Note: these are original stylized SVG character faces, not licensed
+  // anime artwork — a lightweight, on-brand alternative that doesn't need
+  // any external image assets.
+  const AVATAR_PRESETS = [
+    { id: 'a1',  style: 'short', bg1: '#2b0f2e', bg2: '#ff2e93', hair: '#1c1116', skin: '#f2c9a0' },
+    { id: 'a2',  style: 'long',  bg1: '#0f1f2e', bg2: '#3ba7ff', hair: '#3a2213', skin: '#e8b48a' },
+    { id: 'a3',  style: 'short', bg1: '#2e0f14', bg2: '#ff6b4a', hair: '#0d0d0d', skin: '#c98a5e' },
+    { id: 'a4',  style: 'long',  bg1: '#1a0f2e', bg2: '#b26bff', hair: '#5a2a0a', skin: '#f4d3b0' },
+    { id: 'a5',  style: 'short', bg1: '#0f2e22', bg2: '#34e19a', hair: '#3a1a05', skin: '#e0a878' },
+    { id: 'a6',  style: 'long',  bg1: '#2e2a0f', bg2: '#ffd23f', hair: '#1a1a1a', skin: '#f0c39a' },
+    { id: 'a7',  style: 'short', bg1: '#0f172e', bg2: '#4a7dff', hair: '#2b170d', skin: '#d9a978' },
+    { id: 'a8',  style: 'long',  bg1: '#2e0f28', bg2: '#ff4da6', hair: '#7a3b12', skin: '#f7dcc0' },
+    { id: 'a9',  style: 'short', bg1: '#122e0f', bg2: '#8bd450', hair: '#141414', skin: '#b97b52' },
+    { id: 'a10', style: 'long',  bg1: '#0f232e', bg2: '#59e3e3', hair: '#241608', skin: '#eccba3' },
+  ];
+
+  function findAvatarPreset(id) {
+    return AVATAR_PRESETS.find((p) => p.id === id) || AVATAR_PRESETS[0];
   }
 
-  function avatarInitial(name) {
-    return (name || '?').trim().charAt(0).toUpperCase() || '?';
+  function buildAvatarSVG(preset) {
+    const hair = preset.style === 'long'
+      ? `<path d="M8,45 Q8,10 50,8 Q92,10 92,45 L92,72 Q80,55 78,78 L78,50 Q50,40 22,50 L22,78 Q20,55 8,72 Z" fill="${preset.hair}"/>`
+      : `<path d="M10,42 Q14,8 50,8 Q86,8 90,42 Q78,26 50,24 Q22,26 10,42 Z" fill="${preset.hair}"/>`;
+    return `
+      <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="bg-${preset.id}" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="${preset.bg1}"/>
+            <stop offset="1" stop-color="${preset.bg2}"/>
+          </linearGradient>
+        </defs>
+        <circle cx="50" cy="50" r="50" fill="url(#bg-${preset.id})"/>
+        <circle cx="50" cy="57" r="25" fill="${preset.skin}"/>
+        ${hair}
+        <circle cx="41" cy="55" r="2.8" fill="#241620"/>
+        <circle cx="59" cy="55" r="2.8" fill="#241620"/>
+        <path d="M42,67 Q50,72 58,67" stroke="#241620" stroke-width="2.2" fill="none" stroke-linecap="round"/>
+      </svg>`;
+  }
+
+  const AVATAR_ID_KEY = 'wavelength_avatar_id';
+
+  function getMyAvatarId() {
+    return localStorage.getItem(AVATAR_ID_KEY) || 'a1';
+  }
+
+  function setMyAvatarId(id) {
+    localStorage.setItem(AVATAR_ID_KEY, id);
+    sendWs('set_avatar', { avatarId: id });
+    renderAvatarPicker();
+  }
+
+  function renderAvatarPicker() {
+    const selected = getMyAvatarId();
+    avatarGrid.innerHTML = '';
+    AVATAR_PRESETS.forEach((preset) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'avatar-option' + (preset.id === selected ? ' avatar-option--selected' : '');
+      btn.innerHTML = buildAvatarSVG(preset);
+      btn.addEventListener('click', () => setMyAvatarId(preset.id));
+      avatarGrid.appendChild(btn);
+    });
+  }
+
+  // Renders a chosen-avatar SVG into any small circular avatar slot
+  // (inbox rows, thread header, live chat header) given an avatar id.
+  function renderAvatarInto(el, avatarId) {
+    el.innerHTML = buildAvatarSVG(findAvatarPreset(avatarId || 'a1'));
   }
 
   function formatInboxTime(dateInput) {
@@ -186,24 +250,52 @@
   }
   setInterval(() => { dialFreq.textContent = randomFreq(); }, 900);
 
-  // ---------- Back button confirmation (mobile & desktop) ----------
+  // ---------- Back button navigation (mobile & desktop) ----------
+  // Every "deeper" screen push one history entry. The single popstate
+  // handler below is the one place that decides where "back" goes,
+  // so the phone's hardware back button and the on-screen back buttons
+  // both funnel through the same logic and stay in sync.
+  function pushNavState(screenName) {
+    history.pushState({ screen: screenName }, '', location.href);
+  }
+
   function pushChatHistoryState() {
     if (!chatHistoryPushed) {
-      history.pushState({ screen: 'chat' }, '', location.href);
+      pushNavState('chat');
       chatHistoryPushed = true;
     }
   }
 
   window.addEventListener('popstate', () => {
     if (!screens.chat.classList.contains('hidden')) {
+      // Live stranger chat: confirm before actually leaving.
       const reallyLeave = confirm('Leave this chat and go back to the main screen?');
       if (reallyLeave) {
         chatHistoryPushed = false;
         exitChatToLanding();
       } else {
-        pushChatHistoryState();
+        pushChatHistoryState(); // re-trap for next back press
       }
+      return;
     }
+
+    if (!screens.thread.classList.contains('hidden')) {
+      // Thread -> Inbox, no confirmation needed.
+      if (mediaRecorder && mediaRecorder.state === 'recording') stopRecording(false);
+      currentThreadContactId = null;
+      showScreen('inbox');
+      sendWs('get_contacts');
+      return;
+    }
+
+    if (!screens.inbox.classList.contains('hidden')) {
+      // Inbox -> Landing/home.
+      showScreen('landing');
+      return;
+    }
+
+    // On landing/searching already: no pushed state left to intercept,
+    // so the next back press exits to the browser as normal.
   });
 
   function exitChatToLanding() {
@@ -266,6 +358,7 @@
       ws.send(JSON.stringify({ type: 'identify', deviceId: myDeviceId }));
       const name = nameInput.value.trim();
       if (name) ws.send(JSON.stringify({ type: 'set_name', name }));
+      ws.send(JSON.stringify({ type: 'set_avatar', avatarId: getMyAvatarId() }));
       refreshInboxBadge();
 
       if (pendingConnectByCode) {
@@ -321,6 +414,7 @@
         currentStrangerName = msg.strangerName || 'Stranger';
         chatLog.innerHTML = '';
         chatWithLabel.textContent = `Connected to ${currentStrangerName}`;
+        renderAvatarInto(chatAvatar, msg.strangerAvatarId);
         showScreen('chat');
         pushChatHistoryState();
         addSystemBubble("You're connected. Say hi 👋");
@@ -608,7 +702,7 @@
       row.className = 'inbox-row';
       const unread = c.unreadCount > 0;
       row.innerHTML = `
-        <span class="inbox-row__avatar" style="background:${avatarColorFor(c.name)}">${escapeHtml(avatarInitial(c.name))}</span>
+        <span class="inbox-row__avatar"></span>
         <div class="inbox-row__main">
           <div class="inbox-row__top">
             <span class="inbox-row__name">${escapeHtml(c.name)}</span>
@@ -620,19 +714,20 @@
           </div>
         </div>
       `;
-      row.addEventListener('click', () => openThread(c.contactId, c.name));
+      renderAvatarInto(row.querySelector('.inbox-row__avatar'), c.avatar);
+      row.addEventListener('click', () => openThread(c.contactId, c.name, c.avatar));
       inboxList.appendChild(row);
     });
   }
 
-  function openThread(contactId, name) {
+  function openThread(contactId, name, avatarId) {
     currentThreadContactId = contactId;
     threadWithLabel.textContent = name;
-    threadAvatar.textContent = avatarInitial(name);
-    threadAvatar.style.background = avatarColorFor(name);
+    renderAvatarInto(threadAvatar, avatarId);
     threadLog.innerHTML = '';
     threadTypingRow = null;
     showScreen('thread');
+    pushNavState('thread');
     sendWs('open_thread', { contactId });
     threadInput.focus();
   }
@@ -744,18 +839,19 @@
   // ---------- Inbox / Thread navigation ----------
   inboxBtn.addEventListener('click', () => {
     showScreen('inbox');
+    pushNavState('inbox');
     sendWs('get_contacts');
   });
 
+  // On-screen back buttons just trigger a real browser "back" — the
+  // popstate handler above is the single source of truth for where
+  // that actually goes, so these stay in sync with the hardware back button.
   inboxBackBtn.addEventListener('click', () => {
-    showScreen('landing');
+    history.back();
   });
 
   threadBackBtn.addEventListener('click', () => {
-    if (mediaRecorder && mediaRecorder.state === 'recording') stopRecording(false);
-    currentThreadContactId = null;
-    showScreen('inbox');
-    sendWs('get_contacts');
+    history.back();
   });
 
   let threadTypingSendTimeout = null;
@@ -890,5 +986,6 @@
   window.addEventListener('resize', setAppHeight);
 
   // ---------- Boot ----------
+  renderAvatarPicker();
   connectSocket();
 })();

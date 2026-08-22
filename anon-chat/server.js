@@ -45,6 +45,7 @@ const wss = new WebSocket.Server({ server });
 let waitingQueue = [];       // sockets waiting for a random match
 const partners = new Map();  // ws -> partner ws
 const names = new Map();     // ws -> display name
+const avatars = new Map();   // ws -> chosen avatar id (e.g. 'a1'..'a10')
 const codeWaiting = new Map(); // friend code -> ws waiting to be joined
 const deviceOnline = new Map(); // deviceId -> ws (for inbox delivery)
 const wsDeviceId = new Map();   // ws -> deviceId (reverse lookup)
@@ -84,8 +85,8 @@ function breakPair(ws, notifyPartner = true) {
 function pairUp(a, b) {
   partners.set(a, b);
   partners.set(b, a);
-  send(a, 'matched', { strangerName: names.get(b) || 'Stranger' });
-  send(b, 'matched', { strangerName: names.get(a) || 'Stranger' });
+  send(a, 'matched', { strangerName: names.get(b) || 'Stranger', strangerAvatarId: avatars.get(b) || 'a1' });
+  send(b, 'matched', { strangerName: names.get(a) || 'Stranger', strangerAvatarId: avatars.get(a) || 'a1' });
 }
 
 function tryMatch(ws) {
@@ -166,6 +167,12 @@ wss.on('connection', (ws) => {
         break;
       }
 
+      case 'set_avatar': {
+        const avatarId = String(msg.avatarId || '').slice(0, 8).trim();
+        avatars.set(ws, /^a([1-9]|10)$/.test(avatarId) ? avatarId : 'a1');
+        break;
+      }
+
       case 'find': {
         breakPair(ws);
         removeFromCodeWaiting(ws);
@@ -224,6 +231,8 @@ wss.on('connection', (ws) => {
           const code = generateCode();
           const nameSelf = names.get(ws) || 'Stranger';
           const namePartner = names.get(partner) || 'Stranger';
+          const avatarSelf = avatars.get(ws) || 'a1';
+          const avatarPartner = avatars.get(partner) || 'a1';
 
           // Persist a real contact pair for the inbox feature, if both
           // sides have identified with a deviceId. Fails silently and
@@ -231,11 +240,11 @@ wss.on('connection', (ws) => {
           const idSelf = wsDeviceId.get(ws);
           const idPartner = wsDeviceId.get(partner);
           if (idSelf && idPartner) {
-            db.saveContactPair(idSelf, nameSelf, idPartner, namePartner).catch(() => {});
+            db.saveContactPair(idSelf, nameSelf, avatarSelf, idPartner, namePartner, avatarPartner).catch(() => {});
           }
 
-          send(ws, 'friend_code', { code, strangerName: namePartner });
-          send(partner, 'friend_code', { code, strangerName: nameSelf });
+          send(ws, 'friend_code', { code, strangerName: namePartner, strangerAvatarId: avatarPartner });
+          send(partner, 'friend_code', { code, strangerName: nameSelf, strangerAvatarId: avatarSelf });
         } else {
           send(partner, 'friend_response', { accepted: false });
         }
@@ -338,6 +347,7 @@ wss.on('connection', (ws) => {
     removeFromQueue(ws);
     removeFromCodeWaiting(ws);
     names.delete(ws);
+    avatars.delete(ws);
     const deviceId = wsDeviceId.get(ws);
     if (deviceId && deviceOnline.get(deviceId) === ws) deviceOnline.delete(deviceId);
     wsDeviceId.delete(ws);

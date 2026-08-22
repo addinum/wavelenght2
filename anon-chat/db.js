@@ -10,6 +10,7 @@ const contactSchema = new mongoose.Schema({
   ownerId: { type: String, required: true, index: true },
   contactId: { type: String, required: true },
   contactName: { type: String, default: 'Stranger' },
+  contactAvatar: { type: String, default: 'a1' },
   createdAt: { type: Date, default: Date.now },
 });
 contactSchema.index({ ownerId: 1, contactId: 1 }, { unique: true });
@@ -47,17 +48,17 @@ async function connect() {
 }
 
 // ---- Contacts ----
-async function saveContactPair(idA, nameA, idB, nameB) {
+async function saveContactPair(idA, nameA, avatarA, idB, nameB, avatarB) {
   if (!isReady()) return false;
   try {
     await Contact.updateOne(
       { ownerId: idA, contactId: idB },
-      { $set: { contactName: nameB } },
+      { $set: { contactName: nameB, contactAvatar: avatarB || 'a1' } },
       { upsert: true }
     );
     await Contact.updateOne(
       { ownerId: idB, contactId: idA },
-      { $set: { contactName: nameA } },
+      { $set: { contactName: nameA, contactAvatar: avatarA || 'a1' } },
       { upsert: true }
     );
     return true;
@@ -87,6 +88,7 @@ async function getContacts(ownerId) {
       results.push({
         contactId: c.contactId,
         name: c.contactName,
+        avatar: c.contactAvatar || 'a1',
         unreadCount,
         lastMessage: lastMsg ? (lastMsg.msgType === 'voice' ? '🎤 Voice message' : lastMsg.text) : null,
         lastAt: lastMsg ? lastMsg.createdAt : c.createdAt,

@@ -45,6 +45,11 @@
       <input type="search" id="wlHandleInput" name="wl-handle-x7" placeholder="Leave blank to stay Stranger" maxlength="24" autocomplete="off" autocorrect="off" spellcheck="false" data-lpignore="true" data-form-type="other" enterkeyhint="done">
     </label>
 
+    <div class="avatar-picker">
+      <span class="avatar-picker__label">Choose your avatar</span>
+      <div class="avatar-picker__grid" id="avatarGrid"></div>
+    </div>
+
     <button id="startBtn" class="btn-primary"><span class="btn-icon">🎙️</span> Find a stranger <span class="btn-arrow">→</span></button>
 
     <button id="inboxBtn" class="btn-secondary btn-inbox">
@@ -82,6 +87,7 @@
 <section id="chat" class="screen hidden">
   <header class="chat-header">
     <div class="chat-header__status">
+      <span class="mini-avatar" id="chatAvatar"></span>
       <span class="signal-dot" id="signalDot"></span>
       <span id="chatWithLabel">Connected to Stranger</span>
     </div>
