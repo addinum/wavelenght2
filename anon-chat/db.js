@@ -10,7 +10,7 @@ const contactSchema = new mongoose.Schema({
   ownerId: { type: String, required: true, index: true },
   contactId: { type: String, required: true },
   contactName: { type: String, default: 'Stranger' },
-  contactAvatar: { type: String, default: 'a1' },
+  contactAvatar: { type: String, default: 'boy1' },
   createdAt: { type: Date, default: Date.now },
 });
 contactSchema.index({ ownerId: 1, contactId: 1 }, { unique: true });
@@ -53,12 +53,12 @@ async function saveContactPair(idA, nameA, avatarA, idB, nameB, avatarB) {
   try {
     await Contact.updateOne(
       { ownerId: idA, contactId: idB },
-      { $set: { contactName: nameB, contactAvatar: avatarB || 'a1' } },
+      { $set: { contactName: nameB, contactAvatar: avatarB || 'boy1' } },
       { upsert: true }
     );
     await Contact.updateOne(
       { ownerId: idB, contactId: idA },
-      { $set: { contactName: nameA, contactAvatar: avatarA || 'a1' } },
+      { $set: { contactName: nameA, contactAvatar: avatarA || 'boy1' } },
       { upsert: true }
     );
     return true;
@@ -88,7 +88,7 @@ async function getContacts(ownerId) {
       results.push({
         contactId: c.contactId,
         name: c.contactName,
-        avatar: c.contactAvatar || 'a1',
+        avatar: c.contactAvatar || 'boy1',
         unreadCount,
         lastMessage: lastMsg ? (lastMsg.msgType === 'voice' ? '🎤 Voice message' : lastMsg.text) : null,
         lastAt: lastMsg ? lastMsg.createdAt : c.createdAt,

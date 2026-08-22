@@ -17,6 +17,9 @@ const MIME = {
   '.css': 'text/css',
   '.js': 'application/javascript',
   '.ico': 'image/x-icon',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.png': 'image/png',
 };
 
 const server = http.createServer((req, res) => {
@@ -169,7 +172,8 @@ wss.on('connection', (ws) => {
 
       case 'set_avatar': {
         const avatarId = String(msg.avatarId || '').slice(0, 8).trim();
-        avatars.set(ws, /^a([1-9]|10)$/.test(avatarId) ? avatarId : 'a1');
+        const VALID_AVATAR_IDS = new Set(['boy1', 'boy2', 'boy3', 'boy4', 'boy5', 'girl1', 'girl2', 'girl3', 'girl4', 'girl5']);
+        avatars.set(ws, VALID_AVATAR_IDS.has(avatarId) ? avatarId : 'boy1');
         break;
       }
 

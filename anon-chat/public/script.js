@@ -143,52 +143,22 @@
 
   // ---------- Timestamp helpers (for the WhatsApp-style Inbox) ----------
 
-  // ---------- Chosen-avatar system (10 stylized presets, no real login needed) ----------
-  // Note: these are original stylized SVG character faces, not licensed
-  // anime artwork — a lightweight, on-brand alternative that doesn't need
-  // any external image assets.
-  const AVATAR_PRESETS = [
-    { id: 'a1',  style: 'short', bg1: '#2b0f2e', bg2: '#ff2e93', hair: '#1c1116', skin: '#f2c9a0' },
-    { id: 'a2',  style: 'long',  bg1: '#0f1f2e', bg2: '#3ba7ff', hair: '#3a2213', skin: '#e8b48a' },
-    { id: 'a3',  style: 'short', bg1: '#2e0f14', bg2: '#ff6b4a', hair: '#0d0d0d', skin: '#c98a5e' },
-    { id: 'a4',  style: 'long',  bg1: '#1a0f2e', bg2: '#b26bff', hair: '#5a2a0a', skin: '#f4d3b0' },
-    { id: 'a5',  style: 'short', bg1: '#0f2e22', bg2: '#34e19a', hair: '#3a1a05', skin: '#e0a878' },
-    { id: 'a6',  style: 'long',  bg1: '#2e2a0f', bg2: '#ffd23f', hair: '#1a1a1a', skin: '#f0c39a' },
-    { id: 'a7',  style: 'short', bg1: '#0f172e', bg2: '#4a7dff', hair: '#2b170d', skin: '#d9a978' },
-    { id: 'a8',  style: 'long',  bg1: '#2e0f28', bg2: '#ff4da6', hair: '#7a3b12', skin: '#f7dcc0' },
-    { id: 'a9',  style: 'short', bg1: '#122e0f', bg2: '#8bd450', hair: '#141414', skin: '#b97b52' },
-    { id: 'a10', style: 'long',  bg1: '#0f232e', bg2: '#59e3e3', hair: '#241608', skin: '#eccba3' },
-  ];
+  // ---------- Chosen-avatar system (10 real image avatars) ----------
+  const AVATAR_IDS = ['boy1', 'boy2', 'boy3', 'boy4', 'boy5', 'girl1', 'girl2', 'girl3', 'girl4', 'girl5'];
 
-  function findAvatarPreset(id) {
-    return AVATAR_PRESETS.find((p) => p.id === id) || AVATAR_PRESETS[0];
+  function isValidAvatarId(id) {
+    return AVATAR_IDS.includes(id);
   }
 
-  function buildAvatarSVG(preset) {
-    const hair = preset.style === 'long'
-      ? `<path d="M8,45 Q8,10 50,8 Q92,10 92,45 L92,72 Q80,55 78,78 L78,50 Q50,40 22,50 L22,78 Q20,55 8,72 Z" fill="${preset.hair}"/>`
-      : `<path d="M10,42 Q14,8 50,8 Q86,8 90,42 Q78,26 50,24 Q22,26 10,42 Z" fill="${preset.hair}"/>`;
-    return `
-      <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-        <defs>
-          <linearGradient id="bg-${preset.id}" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0" stop-color="${preset.bg1}"/>
-            <stop offset="1" stop-color="${preset.bg2}"/>
-          </linearGradient>
-        </defs>
-        <circle cx="50" cy="50" r="50" fill="url(#bg-${preset.id})"/>
-        <circle cx="50" cy="57" r="25" fill="${preset.skin}"/>
-        ${hair}
-        <circle cx="41" cy="55" r="2.8" fill="#241620"/>
-        <circle cx="59" cy="55" r="2.8" fill="#241620"/>
-        <path d="M42,67 Q50,72 58,67" stroke="#241620" stroke-width="2.2" fill="none" stroke-linecap="round"/>
-      </svg>`;
+  function avatarSrc(id) {
+    return `avatars/${isValidAvatarId(id) ? id : 'boy1'}.jpg`;
   }
 
   const AVATAR_ID_KEY = 'wavelength_avatar_id';
 
   function getMyAvatarId() {
-    return localStorage.getItem(AVATAR_ID_KEY) || 'a1';
+    const stored = localStorage.getItem(AVATAR_ID_KEY);
+    return isValidAvatarId(stored) ? stored : 'boy1';
   }
 
   function setMyAvatarId(id) {
@@ -200,20 +170,20 @@
   function renderAvatarPicker() {
     const selected = getMyAvatarId();
     avatarGrid.innerHTML = '';
-    AVATAR_PRESETS.forEach((preset) => {
+    AVATAR_IDS.forEach((id) => {
       const btn = document.createElement('button');
       btn.type = 'button';
-      btn.className = 'avatar-option' + (preset.id === selected ? ' avatar-option--selected' : '');
-      btn.innerHTML = buildAvatarSVG(preset);
-      btn.addEventListener('click', () => setMyAvatarId(preset.id));
+      btn.className = 'avatar-option' + (id === selected ? ' avatar-option--selected' : '');
+      btn.innerHTML = `<img src="${avatarSrc(id)}" alt="Avatar option" loading="lazy">`;
+      btn.addEventListener('click', () => setMyAvatarId(id));
       avatarGrid.appendChild(btn);
     });
   }
 
-  // Renders a chosen-avatar SVG into any small circular avatar slot
+  // Renders the chosen avatar image into any small circular avatar slot
   // (inbox rows, thread header, live chat header) given an avatar id.
   function renderAvatarInto(el, avatarId) {
-    el.innerHTML = buildAvatarSVG(findAvatarPreset(avatarId || 'a1'));
+    el.innerHTML = `<img src="${avatarSrc(avatarId)}" alt="Avatar">`;
   }
 
   function formatInboxTime(dateInput) {
