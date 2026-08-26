@@ -27,6 +27,30 @@
   const scanLabel = document.getElementById('scanLabel');
   const scanSub = document.getElementById('scanSub');
   const contactsSection = document.getElementById('contactsSection');
+  const accountBar = document.getElementById('accountBar');
+  const accountBarText = document.getElementById('accountBarText');
+  const accountModal = document.getElementById('accountModal');
+  const accountModalClose = document.getElementById('accountModalClose');
+  const authTabsView = document.getElementById('authTabsView');
+  const accountEditView = document.getElementById('accountEditView');
+  const tabSignup = document.getElementById('tabSignup');
+  const tabLogin = document.getElementById('tabLogin');
+  const signupForm = document.getElementById('signupForm');
+  const loginForm = document.getElementById('loginForm');
+  const signupEmail = document.getElementById('signupEmail');
+  const signupPassword = document.getElementById('signupPassword');
+  const signupError = document.getElementById('signupError');
+  const loginEmail = document.getElementById('loginEmail');
+  const loginPassword = document.getElementById('loginPassword');
+  const loginError = document.getElementById('loginError');
+  const accountEmailLabel = document.getElementById('accountEmailLabel');
+  const editAccountForm = document.getElementById('editAccountForm');
+  const editEmail = document.getElementById('editEmail');
+  const editPassword = document.getElementById('editPassword');
+  const editCurrentPassword = document.getElementById('editCurrentPassword');
+  const editError = document.getElementById('editError');
+  const editSuccess = document.getElementById('editSuccess');
+  const signOutBtn = document.getElementById('signOutBtn');
   const contactsList = document.getElementById('contactsList');
   const emojiBtn = document.getElementById('emojiBtn');
   const emojiPanel = document.getElementById('emojiPanel');
@@ -78,7 +102,113 @@
     }
     return id;
   }
-  const myDeviceId = getDeviceId();
+  let myDeviceId = getDeviceId();
+  let myAccountEmail = localStorage.getItem('wavelength_account_email') || null;
+
+  // ---------- Account (optional email login on top of the anonymous system) ----------
+  function updateAccountBarDisplay() {
+    if (myAccountEmail) {
+      accountBarText.textContent = `👤 Signed in as ${myAccountEmail}`;
+    } else {
+      accountBarText.textContent = '🔐 Sign in to keep your inbox everywhere';
+    }
+  }
+
+  function showAccountModal() {
+    signupError.classList.add('hidden');
+    loginError.classList.add('hidden');
+    editError.classList.add('hidden');
+    editSuccess.classList.add('hidden');
+    if (myAccountEmail) {
+      authTabsView.classList.add('hidden');
+      accountEditView.classList.remove('hidden');
+      accountEmailLabel.textContent = myAccountEmail;
+      editEmail.value = '';
+      editPassword.value = '';
+      editCurrentPassword.value = '';
+    } else {
+      authTabsView.classList.remove('hidden');
+      accountEditView.classList.add('hidden');
+    }
+    accountModal.classList.remove('hidden');
+  }
+
+  function hideAccountModal() {
+    accountModal.classList.add('hidden');
+  }
+
+  accountBar.addEventListener('click', showAccountModal);
+  accountModalClose.addEventListener('click', hideAccountModal);
+  accountModal.addEventListener('click', (e) => {
+    if (e.target === accountModal) hideAccountModal();
+  });
+
+  tabSignup.addEventListener('click', () => {
+    tabSignup.classList.add('auth-tab--active');
+    tabLogin.classList.remove('auth-tab--active');
+    signupForm.classList.remove('hidden');
+    loginForm.classList.add('hidden');
+  });
+
+  tabLogin.addEventListener('click', () => {
+    tabLogin.classList.add('auth-tab--active');
+    tabSignup.classList.remove('auth-tab--active');
+    loginForm.classList.remove('hidden');
+    signupForm.classList.add('hidden');
+  });
+
+  signupForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    signupError.classList.add('hidden');
+    sendWs('signup', { email: signupEmail.value.trim(), password: signupPassword.value });
+  });
+
+  loginForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    loginError.classList.add('hidden');
+    sendWs('login', { email: loginEmail.value.trim(), password: loginPassword.value });
+  });
+
+  editAccountForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    editError.classList.add('hidden');
+    editSuccess.classList.add('hidden');
+    sendWs('update_account', {
+      currentPassword: editCurrentPassword.value,
+      newEmail: editEmail.value.trim() || undefined,
+      newPassword: editPassword.value || undefined,
+    });
+  });
+
+  signOutBtn.addEventListener('click', () => {
+    // Signing out just forgets the "logged in" display on THIS browser —
+    // the account itself still exists and can be logged back into anytime.
+    // The deviceId (and its contacts/inbox) stays exactly as it is.
+    myAccountEmail = null;
+    localStorage.removeItem('wavelength_account_email');
+    updateAccountBarDisplay();
+    hideAccountModal();
+  });
+
+  function handleAuthSuccess(msg) {
+    myAccountEmail = msg.email;
+    localStorage.setItem('wavelength_account_email', msg.email);
+    updateAccountBarDisplay();
+
+    if (msg.deviceId && msg.deviceId !== myDeviceId) {
+      // Logging in from a different browser/incognito: switch to the
+      // account's canonical deviceId so its contacts/inbox come into view.
+      myDeviceId = msg.deviceId;
+      localStorage.setItem(DEVICE_ID_KEY, myDeviceId);
+      sendWs('identify', { deviceId: myDeviceId });
+      const name = nameInput.value.trim();
+      if (name) sendWs('set_name', { name });
+      sendWs('set_avatar', { avatarId: getMyAvatarId() });
+    }
+
+    hideAccountModal();
+    refreshInboxBadge();
+  }
 
   // ---------- Contacts (legacy quick-reconnect codes, stored locally) ----------
   const CONTACTS_KEY = 'wavelength_contacts';
@@ -329,6 +459,7 @@
       const name = nameInput.value.trim();
       if (name) ws.send(JSON.stringify({ type: 'set_name', name }));
       ws.send(JSON.stringify({ type: 'set_avatar', avatarId: getMyAvatarId() }));
+      ws.send(JSON.stringify({ type: 'whoami' }));
       refreshInboxBadge();
 
       if (pendingConnectByCode) {
@@ -366,6 +497,40 @@
     switch (msg.type) {
       case 'online_count':
         onlineCount.textContent = `${msg.count} ${msg.count === 1 ? 'person' : 'people'} online now`;
+        break;
+
+      case 'whoami_result':
+        if (msg.account && msg.account.email) {
+          myAccountEmail = msg.account.email;
+          localStorage.setItem('wavelength_account_email', myAccountEmail);
+          updateAccountBarDisplay();
+        }
+        break;
+
+      case 'auth_success':
+        handleAuthSuccess(msg);
+        break;
+
+      case 'auth_error':
+        if (!authTabsView.classList.contains('hidden')) {
+          const activeError = signupForm.classList.contains('hidden') ? loginError : signupError;
+          activeError.textContent = msg.error;
+          activeError.classList.remove('hidden');
+        } else {
+          editError.textContent = msg.error;
+          editError.classList.remove('hidden');
+        }
+        break;
+
+      case 'account_updated':
+        myAccountEmail = msg.email;
+        localStorage.setItem('wavelength_account_email', myAccountEmail);
+        updateAccountBarDisplay();
+        editSuccess.textContent = 'Saved!';
+        editSuccess.classList.remove('hidden');
+        editCurrentPassword.value = '';
+        editPassword.value = '';
+        editEmail.value = '';
         break;
 
       case 'waiting':
@@ -957,5 +1122,6 @@
 
   // ---------- Boot ----------
   renderAvatarPicker();
+  updateAccountBarDisplay();
   connectSocket();
 })();

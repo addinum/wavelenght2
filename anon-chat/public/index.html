@@ -62,6 +62,11 @@
     </div>
 
     <p class="fine-print">By continuing you agree not to share personal contact details. Be kind — someone real is on the other end.</p>
+
+    <button id="accountBar" class="account-bar">
+      <span id="accountBarText">🔐 Sign in to keep your inbox everywhere</span>
+      <span class="account-bar__arrow">→</span>
+    </button>
   </div>
 
   <!-- Saved contacts (stored only in this browser, never on a server) -->
@@ -70,6 +75,53 @@
     <div class="contacts-list" id="contactsList"></div>
   </div>
 </section>
+
+<!-- ===== ACCOUNT MODAL (optional email login) ===== -->
+<div id="accountModal" class="modal-overlay hidden">
+  <div class="modal-card">
+    <button type="button" id="accountModalClose" class="modal-close" aria-label="Close">✕</button>
+
+    <!-- Signed-out: tabs for Sign Up / Log In -->
+    <div id="authTabsView">
+      <div class="auth-tabs">
+        <button type="button" id="tabSignup" class="auth-tab auth-tab--active">Create account</button>
+        <button type="button" id="tabLogin" class="auth-tab">Log in</button>
+      </div>
+      <p class="auth-subtext">Optional — you can keep using Wavelength with no account at all. Signing in just means your inbox and contacts follow you to any device or browser, including incognito.</p>
+
+      <form id="signupForm" class="auth-form">
+        <input type="email" id="signupEmail" placeholder="Email" autocomplete="off" required>
+        <input type="password" id="signupPassword" placeholder="Password (min 6 characters)" autocomplete="off" required minlength="6">
+        <p class="auth-error hidden" id="signupError"></p>
+        <button type="submit" class="btn-primary">Create account</button>
+      </form>
+
+      <form id="loginForm" class="auth-form hidden">
+        <input type="email" id="loginEmail" placeholder="Email" autocomplete="off" required>
+        <input type="password" id="loginPassword" placeholder="Password" autocomplete="off" required>
+        <p class="auth-error hidden" id="loginError"></p>
+        <button type="submit" class="btn-primary">Log in</button>
+      </form>
+    </div>
+
+    <!-- Signed-in: account details + edit -->
+    <div id="accountEditView" class="hidden">
+      <p class="auth-subtext">Signed in as <strong id="accountEmailLabel"></strong></p>
+      <form id="editAccountForm" class="auth-form">
+        <span class="name-field-label">New email (optional)</span>
+        <input type="email" id="editEmail" placeholder="Leave blank to keep current email" autocomplete="off">
+        <span class="name-field-label">New password (optional)</span>
+        <input type="password" id="editPassword" placeholder="Leave blank to keep current password" autocomplete="off" minlength="6">
+        <span class="name-field-label">Current password (required to save changes)</span>
+        <input type="password" id="editCurrentPassword" placeholder="Confirm with your current password" autocomplete="off" required>
+        <p class="auth-error hidden" id="editError"></p>
+        <p class="auth-success hidden" id="editSuccess"></p>
+        <button type="submit" class="btn-primary">Save changes</button>
+      </form>
+      <button type="button" id="signOutBtn" class="btn-ghost" style="width:100%;margin-top:4px;">Sign out of this browser</button>
+    </div>
+  </div>
+</div>
 
 <!-- ===== SEARCHING SCREEN ===== -->
 <section id="searching" class="screen hidden">

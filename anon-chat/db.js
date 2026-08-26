@@ -5,6 +5,14 @@
 // database configured.
 
 const mongoose = require('mongoose');
+const bcrypt = require('bcryptjs');
+
+const accountSchema = new mongoose.Schema({
+  email: { type: String, required: true, unique: true, lowercase: true, trim: true },
+  passwordHash: { type: String, required: true },
+  deviceId: { type: String, required: true }, // the canonical deviceId this account "owns"
+  createdAt: { type: Date, default: Date.now },
+});
 
 const contactSchema = new mongoose.Schema({
   ownerId: { type: String, required: true, index: true },
@@ -26,6 +34,7 @@ const messageSchema = new mongoose.Schema({
   read: { type: Boolean, default: false },
 });
 
+const Account = mongoose.model('Account', accountSchema);
 const Contact = mongoose.model('Contact', contactSchema);
 const Message = mongoose.model('Message', messageSchema);
 
@@ -44,6 +53,92 @@ async function connect() {
     console.log('Connected to MongoDB — inbox feature enabled.');
   } catch (err) {
     console.error('MongoDB connection failed — inbox feature disabled. Reason:', err.message);
+  }
+}
+
+// ---- Accounts (optional email login on top of the anonymous deviceId system) ----
+// Signing up links the CURRENT deviceId to the account, so existing
+// contacts/inbox (already keyed by deviceId) show up automatically —
+// no data migration needed. Logging in elsewhere just hands back that
+// same deviceId so the client can switch to it.
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+async function createAccount(email, password, deviceId) {
+  if (!isReady()) return { ok: false, error: 'Account storage is not available right now.' };
+  const cleanEmail = String(email || '').trim().toLowerCase();
+  if (!EMAIL_RE.test(cleanEmail)) return { ok: false, error: 'Enter a valid email address.' };
+  if (!password || password.length < 6) return { ok: false, error: 'Password must be at least 6 characters.' };
+  if (!deviceId) return { ok: false, error: 'Missing device — try refreshing the page.' };
+
+  try {
+    const existing = await Account.findOne({ email: cleanEmail }).lean();
+    if (existing) return { ok: false, error: 'An account with that email already exists.' };
+
+    const passwordHash = await bcrypt.hash(password, 10);
+    await Account.create({ email: cleanEmail, passwordHash, deviceId });
+    return { ok: true, email: cleanEmail, deviceId };
+  } catch (err) {
+    console.error('createAccount failed:', err.message);
+    return { ok: false, error: 'Something went wrong creating your account.' };
+  }
+}
+
+async function verifyLogin(email, password) {
+  if (!isReady()) return { ok: false, error: 'Account storage is not available right now.' };
+  const cleanEmail = String(email || '').trim().toLowerCase();
+
+  try {
+    const account = await Account.findOne({ email: cleanEmail });
+    if (!account) return { ok: false, error: 'No account found with that email.' };
+
+    const matches = await bcrypt.compare(password || '', account.passwordHash);
+    if (!matches) return { ok: false, error: 'Incorrect password.' };
+
+    return { ok: true, email: account.email, deviceId: account.deviceId };
+  } catch (err) {
+    console.error('verifyLogin failed:', err.message);
+    return { ok: false, error: 'Something went wrong logging in.' };
+  }
+}
+
+async function getAccountByDeviceId(deviceId) {
+  if (!isReady() || !deviceId) return null;
+  try {
+    const account = await Account.findOne({ deviceId }).lean();
+    return account ? { email: account.email } : null;
+  } catch (err) {
+    console.error('getAccountByDeviceId failed:', err.message);
+    return null;
+  }
+}
+
+async function updateAccount(deviceId, currentPassword, newEmail, newPassword) {
+  if (!isReady()) return { ok: false, error: 'Account storage is not available right now.' };
+  try {
+    const account = await Account.findOne({ deviceId });
+    if (!account) return { ok: false, error: 'No account linked to this device.' };
+
+    const matches = await bcrypt.compare(currentPassword || '', account.passwordHash);
+    if (!matches) return { ok: false, error: 'Current password is incorrect.' };
+
+    if (newEmail) {
+      const cleanEmail = String(newEmail).trim().toLowerCase();
+      if (!EMAIL_RE.test(cleanEmail)) return { ok: false, error: 'Enter a valid new email address.' };
+      const taken = await Account.findOne({ email: cleanEmail, deviceId: { $ne: deviceId } }).lean();
+      if (taken) return { ok: false, error: 'That email is already in use.' };
+      account.email = cleanEmail;
+    }
+
+    if (newPassword) {
+      if (newPassword.length < 6) return { ok: false, error: 'New password must be at least 6 characters.' };
+      account.passwordHash = await bcrypt.hash(newPassword, 10);
+    }
+
+    await account.save();
+    return { ok: true, email: account.email };
+  } catch (err) {
+    console.error('updateAccount failed:', err.message);
+    return { ok: false, error: 'Something went wrong updating your account.' };
   }
 }
 
@@ -153,6 +248,10 @@ async function markThreadRead(fromId, toId) {
 module.exports = {
   connect,
   isReady,
+  createAccount,
+  verifyLogin,
+  getAccountByDeviceId,
+  updateAccount,
   saveContactPair,
   getContacts,
   saveMessage,

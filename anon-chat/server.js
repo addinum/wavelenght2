@@ -164,6 +164,55 @@ wss.on('connection', (ws) => {
         break;
       }
 
+      case 'whoami': {
+        const myId = wsDeviceId.get(ws);
+        if (!myId) { send(ws, 'whoami_result', { account: null }); break; }
+        db.getAccountByDeviceId(myId).then((account) => {
+          send(ws, 'whoami_result', { account });
+        });
+        break;
+      }
+
+      case 'signup': {
+        const myId = wsDeviceId.get(ws);
+        if (!myId) { send(ws, 'auth_error', { error: 'Not connected yet — try again in a moment.' }); break; }
+        db.createAccount(msg.email, msg.password, myId).then((result) => {
+          if (result.ok) {
+            send(ws, 'auth_success', { email: result.email, deviceId: result.deviceId, mode: 'signup' });
+          } else {
+            send(ws, 'auth_error', { error: result.error });
+          }
+        });
+        break;
+      }
+
+      case 'login': {
+        db.verifyLogin(msg.email, msg.password).then((result) => {
+          if (result.ok) {
+            // Hand back the account's canonical deviceId — the client
+            // switches to it and re-identifies, which brings their
+            // contacts/inbox into view on this browser/device too.
+            send(ws, 'auth_success', { email: result.email, deviceId: result.deviceId, mode: 'login' });
+          } else {
+            send(ws, 'auth_error', { error: result.error });
+          }
+        });
+        break;
+      }
+
+      case 'update_account': {
+        const myId = wsDeviceId.get(ws);
+        if (!myId) { send(ws, 'auth_error', { error: 'Not connected yet — try again in a moment.' }); break; }
+        db.updateAccount(myId, msg.currentPassword, msg.newEmail, msg.newPassword).then((result) => {
+          if (result.ok) {
+            send(ws, 'account_updated', { email: result.email });
+          } else {
+            send(ws, 'auth_error', { error: result.error });
+          }
+        });
+        break;
+      }
+
       case 'set_name': {
         const clean = String(msg.name || '').slice(0, 24).trim();
         names.set(ws, clean || 'Stranger');
