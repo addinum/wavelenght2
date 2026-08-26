@@ -147,7 +147,7 @@ wss.on('connection', (ws) => {
   names.set(ws, 'Stranger');
   broadcastOnlineCount();
 
-  ws.on('message', (raw) => {
+  ws.on('message', async (raw) => {
     let msg;
     try {
       msg = JSON.parse(raw);
@@ -358,6 +358,50 @@ wss.on('connection', (ws) => {
           const recipientWs = deviceOnline.get(toId);
           if (recipientWs) send(recipientWs, 'inbox_message', payload);
         });
+        break;
+      }
+
+      // ---- Inbox voice calling (WebRTC signaling only; media stays peer-to-peer) ----
+      case 'call_invite': {
+        const myId = wsDeviceId.get(ws);
+        const toId = String(msg.toDeviceId || '');
+        if (!myId || !toId || myId === toId) break;
+        const allowed = await db.areContacts(myId, toId);
+        if (!allowed) break;
+        const recipientWs = deviceOnline.get(toId);
+        if (recipientWs) {
+          send(recipientWs, 'call_invite', {
+            fromId: myId,
+            fromName: String(msg.fromName || 'Contact').slice(0, 40),
+            fromAvatar: String(msg.fromAvatar || 'boy1').slice(0, 8)
+          });
+        }
+        break;
+      }
+
+      case 'call_signal': {
+        const myId = wsDeviceId.get(ws);
+        const toId = String(msg.toDeviceId || '');
+        if (!myId || !toId || myId === toId) break;
+        const allowed = await db.areContacts(myId, toId);
+        if (!allowed) break;
+        const recipientWs = deviceOnline.get(toId);
+        if (recipientWs) {
+          send(recipientWs, 'call_signal', {
+            fromId: myId,
+            signalType: String(msg.signalType || ''),
+            data: msg.data
+          });
+        }
+        break;
+      }
+
+      case 'call_end': {
+        const myId = wsDeviceId.get(ws);
+        const toId = String(msg.toDeviceId || '');
+        if (!myId || !toId) break;
+        const recipientWs = deviceOnline.get(toId);
+        if (recipientWs) send(recipientWs, 'call_end', { fromId: myId });
         break;
       }
 

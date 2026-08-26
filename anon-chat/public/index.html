@@ -180,6 +180,7 @@
     <button id="threadBackBtn" class="wa-back" aria-label="Back">←</button>
     <span class="wa-avatar" id="threadAvatar">?</span>
     <span class="wa-header__title" id="threadWithLabel">Contact</span>
+    <button type="button" id="callBtn" class="wa-call-btn" aria-label="Call contact" title="Voice call">📞</button>
   </header>
 
   <div class="wa-log" id="threadLog"></div>
@@ -205,6 +206,31 @@
   <span>The stranger disconnected.</span>
   <button id="toastFindBtn" class="btn-chip">Find another</button>
 </div>
+
+<!-- ===== INBOX CALL UI ===== -->
+<div id="incomingCallModal" class="call-overlay hidden">
+  <div class="call-card">
+    <div class="call-card__avatar" id="incomingCallAvatar">?</div>
+    <div class="call-card__title" id="incomingCallName">Incoming call</div>
+    <div class="call-card__status">Wants to talk with you</div>
+    <div class="call-card__actions">
+      <button type="button" id="callDeclineBtn" class="call-action call-action--decline">✕</button>
+      <button type="button" id="callAcceptBtn" class="call-action call-action--accept">📞</button>
+    </div>
+  </div>
+</div>
+
+<div id="activeCallBar" class="call-bar hidden">
+  <div class="call-bar__info">
+    <div class="call-bar__avatar" id="activeCallAvatar">?</div>
+    <div>
+      <strong id="activeCallName">Contact</strong>
+      <span id="activeCallStatus">Calling…</span>
+    </div>
+  </div>
+  <button type="button" id="callHangupBtn" class="call-hangup">☎</button>
+</div>
+<audio id="remoteAudio" autoplay playsinline></audio>
 
 <div id="friendRequestToast" class="toast toast--modal hidden">
   <span id="friendRequestText">Stranger wants to add you as a contact</span>

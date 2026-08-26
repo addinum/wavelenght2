@@ -142,6 +142,18 @@ async function updateAccount(deviceId, currentPassword, newEmail, newPassword) {
   }
 }
 
+
+async function areContacts(idA, idB) {
+  if (!isReady() || !idA || !idB) return false;
+  try {
+    const pair = await Contact.exists({ ownerId: idA, contactId: idB });
+    return !!pair;
+  } catch (err) {
+    console.error('areContacts failed:', err.message);
+    return false;
+  }
+}
+
 // ---- Contacts ----
 async function saveContactPair(idA, nameA, avatarA, idB, nameB, avatarB) {
   if (!isReady()) return false;
@@ -246,6 +258,7 @@ async function markThreadRead(fromId, toId) {
 }
 
 module.exports = {
+  areContacts,
   connect,
   isReady,
   createAccount,

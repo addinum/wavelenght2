@@ -79,6 +79,18 @@
   const recordTime = document.getElementById('recordTime');
   const recordCancelBtn = document.getElementById('recordCancelBtn');
   const recordSendBtn = document.getElementById('recordSendBtn');
+  const callBtn = document.getElementById('callBtn');
+  const incomingCallModal = document.getElementById('incomingCallModal');
+  const incomingCallAvatar = document.getElementById('incomingCallAvatar');
+  const incomingCallName = document.getElementById('incomingCallName');
+  const callAcceptBtn = document.getElementById('callAcceptBtn');
+  const callDeclineBtn = document.getElementById('callDeclineBtn');
+  const activeCallBar = document.getElementById('activeCallBar');
+  const activeCallAvatar = document.getElementById('activeCallAvatar');
+  const activeCallName = document.getElementById('activeCallName');
+  const activeCallStatus = document.getElementById('activeCallStatus');
+  const callHangupBtn = document.getElementById('callHangupBtn');
+  const remoteAudio = document.getElementById('remoteAudio');
 
   let ws = null;
   let typingTimeout = null;
@@ -90,6 +102,15 @@
   let userInitiatedClose = false;
   let currentThreadContactId = null;
   let latestContacts = [];
+
+  // ---------- Inbox WebRTC voice calls ----------
+  let peerConnection = null;
+  let localCallStream = null;
+  let activeCallContactId = null;
+  let activeCallContactName = 'Contact';
+  let activeCallContactAvatar = 'boy1';
+  let pendingIncomingCall = null;
+  const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 
   // ---------- Persistent device identity (for the inbox feature only) ----------
   const DEVICE_ID_KEY = 'wavelength_device_id';
@@ -636,6 +657,26 @@
         addSystemBubble(msg.reason || "Couldn't send that voice note.");
         break;
 
+      case 'call_invite':
+        if (activeCallContactId || pendingIncomingCall) break;
+        pendingIncomingCall = msg;
+        incomingCallName.textContent = msg.fromName || 'Contact';
+        setCallAvatar(incomingCallAvatar, msg.fromAvatar || 'boy1');
+        incomingCallModal.classList.remove('hidden');
+        break;
+
+      case 'call_signal':
+        handleCallSignal(msg);
+        break;
+
+      case 'call_end':
+        if (pendingIncomingCall && pendingIncomingCall.fromId === msg.fromId) {
+          pendingIncomingCall = null;
+          incomingCallModal.classList.add('hidden');
+        }
+        if (activeCallContactId === msg.fromId) endCall(false);
+        break;
+
       case 'inbox_typing':
         if (!screens.thread.classList.contains('hidden') && currentThreadContactId === msg.fromId) {
           showThreadTyping();
@@ -855,6 +896,144 @@
     });
   }
 
+  function setCallAvatar(el, avatarId) {
+    renderAvatarInto(el, avatarId || 'boy1');
+  }
+
+  function showActiveCall(name, avatar, status) {
+    activeCallName.textContent = name || 'Contact';
+    activeCallStatus.textContent = status || 'Calling…';
+    setCallAvatar(activeCallAvatar, avatar);
+    activeCallBar.classList.remove('hidden');
+  }
+
+  function hideCallUI() {
+    incomingCallModal.classList.add('hidden');
+    activeCallBar.classList.add('hidden');
+  }
+
+  function sendCallSignal(toDeviceId, signalType, data) {
+    sendWs('call_signal', { toDeviceId, signalType, data });
+  }
+
+  async function createPeerConnection(contactId, isOfferer) {
+    if (peerConnection) peerConnection.close();
+    peerConnection = new RTCPeerConnection(rtcConfig);
+
+    peerConnection.onicecandidate = (event) => {
+      if (event.candidate) sendCallSignal(contactId, 'ice', event.candidate);
+    };
+    peerConnection.ontrack = (event) => {
+      remoteAudio.srcObject = event.streams[0];
+      remoteAudio.play().catch(() => {});
+    };
+    peerConnection.onconnectionstatechange = () => {
+      if (!peerConnection) return;
+      if (['connected'].includes(peerConnection.connectionState)) activeCallStatus.textContent = 'Connected';
+      if (['failed', 'disconnected', 'closed'].includes(peerConnection.connectionState)) endCall(false);
+    };
+
+    if (!localCallStream) {
+      localCallStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    }
+    localCallStream.getTracks().forEach((track) => peerConnection.addTrack(track, localCallStream));
+
+    if (isOfferer) {
+      const offer = await peerConnection.createOffer();
+      await peerConnection.setLocalDescription(offer);
+      sendCallSignal(contactId, 'offer', peerConnection.localDescription);
+    }
+    return peerConnection;
+  }
+
+  async function startCall() {
+    if (!currentThreadContactId || activeCallContactId) return;
+    if (!navigator.mediaDevices?.getUserMedia || !window.RTCPeerConnection) {
+      alert('Voice calling is not supported by this browser.');
+      return;
+    }
+    try {
+      activeCallContactId = currentThreadContactId;
+      activeCallContactName = threadWithLabel.textContent || 'Contact';
+      activeCallContactAvatar = latestContacts.find(c => c.contactId === activeCallContactId)?.avatar || 'boy1';
+      showActiveCall(activeCallContactName, activeCallContactAvatar, 'Calling…');
+      await createPeerConnection(activeCallContactId, false);
+      sendWs('call_invite', {
+        toDeviceId: activeCallContactId,
+        fromName: activeCallContactName,
+        fromAvatar: getMyAvatarId()
+      });
+    } catch (err) {
+      console.error('startCall failed:', err);
+      endCall(false);
+      alert('Microphone permission is required for calls.');
+    }
+  }
+
+  async function acceptIncomingCall() {
+    if (!pendingIncomingCall) return;
+    const call = pendingIncomingCall;
+    pendingIncomingCall = null;
+    incomingCallModal.classList.add('hidden');
+    activeCallContactId = call.fromId;
+    activeCallContactName = call.fromName || 'Contact';
+    activeCallContactAvatar = call.fromAvatar || 'boy1';
+    showActiveCall(activeCallContactName, activeCallContactAvatar, 'Connecting…');
+    try {
+      await createPeerConnection(call.fromId, false);
+      sendCallSignal(call.fromId, 'accept', true);
+    } catch (err) {
+      console.error('acceptIncomingCall failed:', err);
+      endCall(true);
+    }
+  }
+
+  function declineIncomingCall() {
+    if (pendingIncomingCall) sendWs('call_end', { toDeviceId: pendingIncomingCall.fromId });
+    pendingIncomingCall = null;
+    incomingCallModal.classList.add('hidden');
+  }
+
+  function endCall(notify = true) {
+    const contactId = activeCallContactId;
+    if (notify && contactId) sendWs('call_end', { toDeviceId: contactId });
+    if (peerConnection) {
+      peerConnection.onconnectionstatechange = null;
+      peerConnection.close();
+      peerConnection = null;
+    }
+    if (localCallStream) {
+      localCallStream.getTracks().forEach(t => t.stop());
+      localCallStream = null;
+    }
+    remoteAudio.srcObject = null;
+    activeCallContactId = null;
+    hideCallUI();
+  }
+
+  async function handleCallSignal(msg) {
+    if (!activeCallContactId || msg.fromId !== activeCallContactId || !msg.data) return;
+    try {
+      if (msg.signalType === 'accept') {
+        if (!peerConnection) await createPeerConnection(activeCallContactId, false);
+        const offer = await peerConnection.createOffer();
+        await peerConnection.setLocalDescription(offer);
+        sendCallSignal(activeCallContactId, 'offer', peerConnection.localDescription);
+      } else if (msg.signalType === 'offer') {
+        await peerConnection.setRemoteDescription(new RTCSessionDescription(msg.data));
+        const answer = await peerConnection.createAnswer();
+        await peerConnection.setLocalDescription(answer);
+        sendCallSignal(activeCallContactId, 'answer', peerConnection.localDescription);
+      } else if (msg.signalType === 'answer') {
+        await peerConnection.setRemoteDescription(new RTCSessionDescription(msg.data));
+      } else if (msg.signalType === 'ice') {
+        await peerConnection.addIceCandidate(new RTCIceCandidate(msg.data));
+      }
+    } catch (err) {
+      console.error('call signaling failed:', err);
+    }
+  }
+
   function openThread(contactId, name, avatarId) {
     currentThreadContactId = contactId;
     threadWithLabel.textContent = name;
@@ -986,6 +1165,7 @@
   });
 
   threadBackBtn.addEventListener('click', () => {
+    endCall(true);
     history.back();
   });
 
@@ -996,6 +1176,11 @@
     sendWs('inbox_typing', { toDeviceId: currentThreadContactId });
     threadTypingSendTimeout = setTimeout(() => { threadTypingSendTimeout = null; }, 1200);
   });
+
+  callBtn.addEventListener('click', startCall);
+  callAcceptBtn.addEventListener('click', acceptIncomingCall);
+  callDeclineBtn.addEventListener('click', declineIncomingCall);
+  callHangupBtn.addEventListener('click', () => endCall(true));
 
   threadForm.addEventListener('submit', (e) => {
     e.preventDefault();

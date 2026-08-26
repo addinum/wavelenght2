@@ -1516,3 +1516,94 @@ button:focus-visible, input:focus-visible {
 }
 
 #accountEmailLabel { color: var(--accent-2); }
+
+
+/* ---------- Inbox voice calling ---------- */
+.wa-call-btn {
+  margin-left: auto;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: var(--panel-raised);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 17px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color .15s, box-shadow .15s, transform .15s;
+}
+.wa-call-btn:hover { border-color: var(--accent); box-shadow: 0 0 16px var(--accent-glow); transform: scale(1.04); }
+
+.call-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(5, 2, 6, .72);
+  backdrop-filter: blur(12px);
+}
+.call-card {
+  width: min(360px, 100%);
+  padding: 30px 24px 24px;
+  text-align: center;
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  background: var(--panel-solid);
+  box-shadow: 0 24px 70px rgba(0,0,0,.55), 0 0 35px var(--accent-glow);
+}
+.call-card__avatar, .call-bar__avatar {
+  overflow: hidden;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.call-card__avatar {
+  width: 82px;
+  height: 82px;
+  margin: 0 auto 14px;
+}
+.call-card__avatar img, .call-bar__avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.call-card__title { font-size: 20px; font-weight: 800; color: var(--text); }
+.call-card__status { margin-top: 5px; font-size: 13px; color: var(--text-faint); }
+.call-card__actions { display: flex; justify-content: center; gap: 34px; margin-top: 28px; }
+.call-action, .call-hangup {
+  border: none;
+  cursor: pointer;
+  color: #fff;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.call-action { width: 58px; height: 58px; font-size: 21px; box-shadow: 0 8px 24px rgba(0,0,0,.3); }
+.call-action--decline, .call-hangup { background: var(--danger); }
+.call-action--accept { background: var(--online); }
+
+.call-bar {
+  position: fixed;
+  left: 50%;
+  bottom: max(18px, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  z-index: 90;
+  width: min(430px, calc(100% - 24px));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--panel-solid);
+  backdrop-filter: blur(18px);
+  box-shadow: 0 12px 40px rgba(0,0,0,.45), 0 0 24px var(--accent-glow);
+}
+.call-bar__info { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.call-bar__avatar { width: 42px; height: 42px; }
+.call-bar__info strong, .call-bar__info span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.call-bar__info strong { color: var(--text); font-size: 14px; }
+.call-bar__info span { color: var(--text-faint); font-size: 11.5px; margin-top: 2px; }
+.call-hangup { width: 44px; height: 44px; font-size: 17px; transform: rotate(135deg); }
