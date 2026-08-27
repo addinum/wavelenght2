@@ -23,7 +23,10 @@ const MIME = {
 };
 
 const server = http.createServer((req, res) => {
-  let filePath = req.url === '/' ? '/index.html' : req.url;
+  // Strip query strings (e.g. style.css?v=...) before resolving static files.
+  // This keeps cache-busting URLs from causing a 404 and taking down the UI styling.
+  const requestPath = new URL(req.url, `http://${req.headers.host || 'localhost'}`).pathname;
+  let filePath = requestPath === '/' ? '/index.html' : requestPath;
   filePath = path.join(PUBLIC_DIR, filePath);
 
   if (!filePath.startsWith(PUBLIC_DIR)) {
