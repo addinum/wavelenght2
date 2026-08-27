@@ -313,6 +313,16 @@ wss.on('connection', (ws) => {
         break;
       }
 
+      case 'delete_contact': {
+        const myId = wsDeviceId.get(ws);
+        const contactId = String(msg.contactId || '');
+        if (!myId || !contactId || myId === contactId) break;
+
+        const deleted = await db.deleteContact(myId, contactId);
+        send(ws, 'contact_deleted', { contactId, ok: deleted });
+        break;
+      }
+
       case 'open_thread': {
         const myId = wsDeviceId.get(ws);
         const theirId = String(msg.contactId || '');
@@ -402,6 +412,40 @@ wss.on('connection', (ws) => {
         if (!myId || !toId) break;
         const recipientWs = deviceOnline.get(toId);
         if (recipientWs) send(recipientWs, 'call_end', { fromId: myId });
+        break;
+      }
+
+      case 'send_inbox_gif': {
+        const myId = wsDeviceId.get(ws);
+        const toId = String(msg.toDeviceId || '');
+        const gifData = String(msg.gifData || '');
+        const MAX_GIF_DATA_LENGTH = 4 * 1024 * 1024;
+
+        // Accept either legacy uploaded GIF data URLs or trusted GIPHY HTTPS URLs.
+        // Remote URLs keep MongoDB tiny because the GIF bytes stay on GIPHY.
+        if (!myId || !toId || !gifData || myId === toId) break;
+        const isGifData = /^data:image\/gif;base64,[A-Za-z0-9+/=]+$/i.test(gifData);
+        const isGiphyUrl = /^https:\/\/(?:[a-z0-9-]+\.)*giphy\.com\//i.test(gifData);
+        if (!isGifData && !isGiphyUrl) break;
+        if (gifData.length > MAX_GIF_DATA_LENGTH) {
+          send(ws, 'gif_rejected', { reason: 'GIF is too large (max 4 MB).' });
+          break;
+        }
+        if (!(await db.areContacts(myId, toId))) break;
+
+        db.saveGifMessage(myId, toId, gifData).then((saved) => {
+          const payload = {
+            id: saved && saved._id ? String(saved._id) : `local-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+            msgType: 'gif',
+            fromId: myId,
+            toId,
+            gifData,
+            createdAt: saved ? saved.createdAt : new Date(),
+          };
+          send(ws, 'inbox_message', payload);
+          const recipientWs = deviceOnline.get(toId);
+          if (recipientWs) send(recipientWs, 'inbox_message', payload);
+        });
         break;
       }
 

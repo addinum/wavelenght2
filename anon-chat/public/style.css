@@ -933,6 +933,37 @@ h1 {
   flex: 1;
 }
 
+.inbox-row__actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-shrink: 0;
+}
+
+.inbox-row__delete {
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: rgba(255,255,255,0.04);
+  color: var(--text-faint);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.inbox-row__delete:hover,
+.inbox-row__delete:focus-visible {
+  color: #fff;
+  background: rgba(255, 80, 110, 0.14);
+  border-color: rgba(255, 80, 110, 0.4);
+  outline: none;
+}
+
 .inbox-row__badge {
   background: linear-gradient(135deg, var(--accent), var(--accent-deep));
   color: #fff;
@@ -1191,6 +1222,152 @@ h1 {
   cursor: pointer;
   flex-shrink: 0;
   box-shadow: 0 4px 16px rgba(255,46,147,0.35);
+}
+
+/* ---------- GIF bubble ---------- */
+.wa-gif-bubble {
+  padding: 4px 4px 3px;
+  max-width: min(78vw, 300px);
+  overflow: hidden;
+}
+.wa-gif-image {
+  display: block;
+  width: auto;
+  max-width: min(70vw, 280px);
+  max-height: 260px;
+  border-radius: 12px;
+  object-fit: contain;
+  background: rgba(0,0,0,0.18);
+}
+.wa-gif-time {
+  display: block;
+  padding: 3px 4px 0;
+  text-align: right;
+}
+
+
+/* ---------- GIF picker ---------- */
+.wa-gif-btn {
+  flex: 0 0 auto;
+  width: 40px;
+  height: 34px;
+  padding: 0;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--panel-raised);
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: .15px;
+  cursor: pointer;
+}
+.wa-gif-btn:active { transform: scale(.96); }
+.gif-picker-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 14px;
+  background: rgba(0,0,0,.68);
+  backdrop-filter: blur(12px);
+}
+.gif-picker-card {
+  width: min(760px, 100%);
+  max-height: min(86vh, 760px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  background: var(--panel);
+  box-shadow: 0 24px 70px rgba(0,0,0,.48);
+}
+.gif-picker-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px 10px;
+}
+.gif-picker-header strong { display: block; font-size: 16px; }
+.gif-powered { display: block; margin-top: 3px; color: var(--text-faint); font-size: 10px; }
+.gif-search-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 16px 10px;
+}
+.gif-search-row input {
+  flex: 1;
+  min-width: 0;
+  height: 42px;
+  border: 1px solid var(--line);
+  border-radius: 21px;
+  background: var(--panel-raised);
+  color: var(--text);
+  padding: 0 16px;
+  outline: none;
+  font-size: 14px;
+  box-sizing: border-box;
+}
+.gif-search-row input:focus {
+  border-color: var(--accent, #ff2b93);
+  box-shadow: 0 0 0 3px rgba(255,43,147,.12);
+}
+.gif-search-row .btn-primary {
+  flex: 0 0 78px;
+  width: 78px;
+  min-width: 78px;
+  height: 38px;
+  padding: 0 12px;
+  border-radius: 19px;
+  font-size: 12px;
+}
+.gif-picker-status {
+  min-height: 20px;
+  padding: 0 16px 8px;
+  color: var(--text-faint);
+  font-size: 12px;
+}
+.gif-results {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  align-items: start;
+  gap: 7px;
+  padding: 0 10px 14px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.gif-result {
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,.07);
+  border-radius: 10px;
+  background: rgba(255,255,255,.05);
+  cursor: pointer;
+  line-height: 0;
+}
+.gif-result img {
+  width: 100%;
+  height: auto;
+  min-height: 80px;
+  max-height: 190px;
+  display: block;
+  object-fit: contain;
+  background: rgba(0,0,0,.14);
+}
+.gif-result:active { transform: scale(.98); }
+@media (max-width: 520px) {
+  .gif-picker-overlay { padding: 8px; align-items: center; }
+  .gif-picker-card { max-height: 88vh; border-radius: 18px; }
+  .gif-results { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+  .gif-result img { max-height: 180px; }
+  .gif-search-row { padding-left: 12px; padding-right: 12px; }
+  .gif-search-row .btn-primary { flex-basis: 70px; width: 70px; min-width: 70px; }
 }
 
 /* ---------- Voice note bubble (playback) ---------- */

@@ -26,8 +26,9 @@ contactSchema.index({ ownerId: 1, contactId: 1 }, { unique: true });
 const messageSchema = new mongoose.Schema({
   fromId: { type: String, required: true, index: true },
   toId: { type: String, required: true, index: true },
-  msgType: { type: String, enum: ['text', 'voice'], default: 'text' },
+  msgType: { type: String, enum: ['text', 'voice', 'gif'], default: 'text' },
   text: { type: String, default: '' },
+  gifData: { type: String, default: null },
   audioData: { type: String, default: null }, // base64-encoded audio, voice notes only
   duration: { type: Number, default: null },  // seconds, voice notes only
   createdAt: { type: Date, default: Date.now },
@@ -175,6 +176,17 @@ async function saveContactPair(idA, nameA, avatarA, idB, nameB, avatarB) {
   }
 }
 
+async function deleteContact(ownerId, contactId) {
+  if (!isReady() || !ownerId || !contactId) return false;
+  try {
+    const result = await Contact.deleteOne({ ownerId, contactId });
+    return result.deletedCount > 0;
+  } catch (err) {
+    console.error('deleteContact failed:', err.message);
+    return false;
+  }
+}
+
 async function getContacts(ownerId) {
   if (!isReady()) return [];
   try {
@@ -197,7 +209,7 @@ async function getContacts(ownerId) {
         name: c.contactName,
         avatar: c.contactAvatar || 'boy1',
         unreadCount,
-        lastMessage: lastMsg ? (lastMsg.msgType === 'voice' ? '🎤 Voice message' : lastMsg.text) : null,
+        lastMessage: lastMsg ? (lastMsg.msgType === 'voice' ? '🎤 Voice message' : lastMsg.msgType === 'gif' ? '🎞️ GIF' : lastMsg.text) : null,
         lastAt: lastMsg ? lastMsg.createdAt : c.createdAt,
       });
     }
@@ -228,6 +240,17 @@ async function saveVoiceMessage(fromId, toId, audioData, duration) {
     return msg;
   } catch (err) {
     console.error('saveVoiceMessage failed:', err.message);
+    return null;
+  }
+}
+
+async function saveGifMessage(fromId, toId, gifData) {
+  if (!isReady()) return null;
+  try {
+    const msg = await Message.create({ fromId, toId, msgType: 'gif', gifData });
+    return msg;
+  } catch (err) {
+    console.error('saveGifMessage failed:', err.message);
     return null;
   }
 }
@@ -267,8 +290,10 @@ module.exports = {
   updateAccount,
   saveContactPair,
   getContacts,
+  deleteContact,
   saveMessage,
   saveVoiceMessage,
+  saveGifMessage,
   getThread,
   markThreadRead,
 };

@@ -195,11 +195,32 @@
   </div>
 
   <form id="threadForm" class="wa-input-bar" autocomplete="off">
-    <input type="search" id="threadInput" name="wl-thread-msg-b2" placeholder="Message" autocomplete="off" autocorrect="off" spellcheck="false" data-lpignore="true" data-form-type="other" enterkeyhint="send" maxlength="2000">
+    <div id="threadInput" class="thread-input" contenteditable="true" role="textbox" aria-label="Message" data-placeholder="Message" inputmode="text" spellcheck="false"></div>
+    <button type="button" id="gifBtn" class="wa-gif-btn" aria-label="Choose GIF" title="GIF">GIF</button>
     <button type="button" id="micBtn" class="wa-mic" aria-label="Record voice note">🎤</button>
     <button type="submit" class="wa-send" aria-label="Send">➤</button>
   </form>
 </section>
+
+
+<!-- ===== GIF PICKER ===== -->
+<div id="gifPickerModal" class="gif-picker-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="gifPickerTitle">
+  <div class="gif-picker-card">
+    <div class="gif-picker-header">
+      <div>
+        <strong id="gifPickerTitle">Choose a GIF</strong>
+        <span class="gif-powered">Powered by GIPHY</span>
+      </div>
+      <button type="button" id="gifPickerClose" class="modal-close" aria-label="Close GIF picker">✕</button>
+    </div>
+    <form id="gifSearchForm" class="gif-search-row">
+      <input id="gifSearchInput" type="search" maxlength="50" placeholder="Search GIFs…" autocomplete="off">
+      <button type="submit" class="btn-primary">Search</button>
+    </form>
+    <div id="gifPickerStatus" class="gif-picker-status">Search for a GIF</div>
+    <div id="gifResults" class="gif-results" aria-live="polite"></div>
+  </div>
+</div>
 
 <!-- ===== TOASTS / MODALS ===== -->
 <div id="leftToast" class="toast hidden">
@@ -245,5 +266,6 @@
 </div>
 
 <script src="script.js"></script>
+<script>window.GIPHY_API_KEY = window.GIPHY_API_KEY || '';</script>
 </body>
 </html>
