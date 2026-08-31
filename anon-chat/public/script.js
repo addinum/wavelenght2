@@ -688,7 +688,11 @@
               addThreadBubble(m.text, who, m.createdAt, m._id || m.id, m);
             }
           });
-          if (msg.messages.some((m) => m.fromId === myDeviceId)) markThreadBubblesRead();
+          // IMPORTANT: never mark our own messages as read merely because
+          // history was loaded. The read state must come from MongoDB / a real
+          // read receipt generated when the recipient actually opens the thread.
+          // This prevents sent messages from becoming blue ticks after leaving
+          // and reopening the inbox while the contact is still offline.
         }
         break;
 
