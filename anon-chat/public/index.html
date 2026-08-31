@@ -179,11 +179,22 @@
   <header class="wa-header">
     <button id="threadBackBtn" class="wa-back" aria-label="Back">←</button>
     <span class="wa-avatar" id="threadAvatar">?</span>
-    <span class="wa-header__title" id="threadWithLabel">Contact</span>
+    <div class="wa-header__contact">
+      <span class="wa-header__title" id="threadWithLabel">Contact</span>
+      <span class="wa-header__presence" id="threadPresenceLabel">Offline</span>
+    </div>
     <button type="button" id="callBtn" class="wa-call-btn" aria-label="Call contact" title="Voice call">📞</button>
   </header>
 
   <div class="wa-log" id="threadLog"></div>
+
+  <div id="replyComposer" class="reply-composer hidden">
+    <div class="reply-composer__text">
+      <strong>Replying</strong>
+      <span id="replyComposerPreview">Message</span>
+    </div>
+    <button type="button" id="replyComposerClose" aria-label="Cancel reply">✕</button>
+  </div>
 
   <!-- Voice recording overlay bar (shown instead of the normal input while recording) -->
   <div class="wa-record-bar hidden" id="recordBar">

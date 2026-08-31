@@ -70,6 +70,10 @@
   const inboxEmpty = document.getElementById('inboxEmpty');
   const threadBackBtn = document.getElementById('threadBackBtn');
   const threadWithLabel = document.getElementById('threadWithLabel');
+  const threadPresenceLabel = document.getElementById('threadPresenceLabel');
+  const replyComposer = document.getElementById('replyComposer');
+  const replyComposerPreview = document.getElementById('replyComposerPreview');
+  const replyComposerClose = document.getElementById('replyComposerClose');
   const threadAvatar = document.getElementById('threadAvatar');
   const threadLog = document.getElementById('threadLog');
   const threadForm = document.getElementById('threadForm');
@@ -115,6 +119,8 @@
   let userInitiatedClose = false;
   let currentThreadContactId = null;
   let latestContacts = [];
+  let selectedReply = null;
+  let presenceById = new Map();
 
   // ---------- Inbox WebRTC voice calls ----------
   let peerConnection = null;
@@ -149,7 +155,7 @@
 
   // Add your GIPHY Web API key here. GIPHY requires an API key for search.
   // Keep the key in the frontend config because GIPHY's Search endpoint is a client-side API.
-  const GIPHY_API_KEY ="Dw0k6Lxznqo0D34MwiTwmakhcvyHcYqX";
+  const GIPHY_API_KEY = window.GIPHY_API_KEY || '';
   const GIPHY_SEARCH_URL = 'https://api.giphy.com/v1/gifs/search';
 
   function getDeviceId() {
@@ -650,6 +656,7 @@
       // ---- Inbox events ----
       case 'contacts_list':
         latestContacts = msg.contacts || [];
+        latestContacts.forEach(c => presenceById.set(c.contactId, { online: !!c.online, lastSeenAt: c.lastSeenAt }));
         renderInboxList();
         updateInboxBadge();
         break;
@@ -674,11 +681,11 @@
           msg.messages.forEach((m) => {
             const who = m.fromId === myDeviceId ? 'me' : 'them';
             if (m.msgType === 'voice') {
-              addVoiceBubble(m.audioData, m.duration, who, m.createdAt, m._id || m.id);
+              addVoiceBubble(m.audioData, m.duration, who, m.createdAt, m._id || m.id, m);
             } else if (m.msgType === 'gif') {
-              addGifBubble(m.gifData, who, m.createdAt, m._id || m.id);
+              addGifBubble(m.gifData, who, m.createdAt, m._id || m.id, m);
             } else {
-              addThreadBubble(m.text, who, m.createdAt, m._id || m.id);
+              addThreadBubble(m.text, who, m.createdAt, m._id || m.id, m);
             }
           });
           if (msg.messages.some((m) => m.fromId === myDeviceId)) markThreadBubblesRead();
@@ -694,11 +701,11 @@
         if (!screens.thread.classList.contains('hidden') && currentThreadContactId === otherPartyId) {
           hideThreadTyping();
           if (msg.msgType === 'voice') {
-            addVoiceBubble(msg.audioData, msg.duration, who, msg.createdAt, msg.id);
+            addVoiceBubble(msg.audioData, msg.duration, who, msg.createdAt, msg.id, msg);
           } else if (msg.msgType === 'gif') {
-            addGifBubble(msg.gifData, who, msg.createdAt, msg.id);
+            addGifBubble(msg.gifData, who, msg.createdAt, msg.id, msg);
           } else {
-            addThreadBubble(msg.text, who, msg.createdAt, msg.id);
+            addThreadBubble(msg.text, who, msg.createdAt, msg.id, msg);
           }
         } else if (isForMe) {
           const contact = latestContacts.find((c) => c.contactId === otherPartyId);
@@ -707,6 +714,28 @@
         sendWs('get_contacts'); // refresh unread counts / previews
         break;
       }
+
+      case 'message_status':
+        updateMessageStatus(msg.id, msg.status);
+        break;
+
+      case 'message_edited':
+        updateMessageText(msg.id, msg.text, true);
+        break;
+
+      case 'message_deleted':
+        updateMessageDeleted(msg.id);
+        break;
+
+      case 'message_reactions':
+        updateMessageReactions(msg.id, msg.reactions || []);
+        break;
+
+      case 'presence':
+        presenceById.set(msg.deviceId, { online: !!msg.online, lastSeenAt: msg.lastSeenAt || new Date().toISOString() });
+        updateContactPresence(msg.deviceId);
+        if (currentThreadContactId === msg.deviceId) updateThreadPresence(msg.deviceId);
+        break;
 
       case 'voice_note_rejected':
         addSystemBubble(msg.reason || "Couldn't send that voice note.");
@@ -761,7 +790,7 @@
   }
 
   // WhatsApp-style bubble for the Inbox/Thread screen (includes timestamp + read ticks).
-  function addThreadBubble(text, who, timestamp, msgId) {
+  function addThreadBubble(text, who, timestamp, msgId, meta = {}) {
     const urlRegex = /(https?:\/\/[^\s]+)/g;
     const linked = escapeHtml(text).replace(
       urlRegex,
@@ -775,8 +804,8 @@
     bubble.className = `wa-bubble wa-bubble--${who === 'me' ? 'me' : 'them'}`;
     if (msgId) bubble.dataset.msgId = msgId;
 
-    const tickHtml = who === 'me' ? '<span class="wa-tick">✓</span>' : '';
-    bubble.innerHTML = `<span class="wa-bubble__text">${linked}</span><span class="wa-bubble__time">${formatBubbleTime(timestamp || Date.now())}${tickHtml}</span>`;
+    bubble.innerHTML = `<div class="wa-bubble__reply-placeholder"></div><span class="wa-bubble__text">${linked}</span><span class="wa-bubble__time">${formatBubbleTime(timestamp || Date.now())}</span>`;
+    decorateThreadBubble(bubble, meta, who);
 
     row.appendChild(bubble);
     threadLog.appendChild(row);
@@ -784,7 +813,7 @@
   }
 
   // GIF bubble: displays the animated GIF inside a compact WhatsApp-style bubble.
-  function addGifBubble(gifData, who, timestamp, msgId) {
+  function addGifBubble(gifData, who, timestamp, msgId, meta = {}) {
     const source = String(gifData || '');
     const isDataGif = /^data:image\/gif;base64,/i.test(source);
     const isRemoteGif = /^https:\/\/(?:[a-z0-9-]+\.)*giphy\.com\//i.test(source);
@@ -804,12 +833,16 @@
     img.loading = 'lazy';
     img.decoding = 'async';
 
-    const meta = document.createElement('span');
-    meta.className = 'wa-bubble__time wa-gif-time';
-    meta.innerHTML = `${formatBubbleTime(timestamp || Date.now())}${who === 'me' ? '<span class="wa-tick">✓</span>' : ''}`;
+    const timeMeta = document.createElement('span');
+    timeMeta.className = 'wa-bubble__time wa-gif-time';
+    timeMeta.innerHTML = `${formatBubbleTime(timestamp || Date.now())}${who === 'me' ? '<span class="wa-tick">✓</span>' : ''}`;
 
+    const replyPlaceholder = document.createElement('div');
+    replyPlaceholder.className = 'wa-bubble__reply-placeholder';
+    bubble.appendChild(replyPlaceholder);
     bubble.appendChild(img);
-    bubble.appendChild(meta);
+    bubble.appendChild(timeMeta);
+    decorateThreadBubble(bubble, meta, who);
     row.appendChild(bubble);
     threadLog.appendChild(row);
     threadLog.scrollTop = threadLog.scrollHeight;
@@ -817,7 +850,7 @@
 
   // Voice note bubble: play/pause button + a decorative waveform that fills
   // in as playback progresses, using the audio element's real currentTime.
-  function addVoiceBubble(audioData, duration, who, timestamp, msgId) {
+  function addVoiceBubble(audioData, duration, who, timestamp, msgId, meta = {}) {
     const row = document.createElement('div');
     row.className = `wa-bubble-row wa-bubble-row--${who === 'me' ? 'me' : 'them'}`;
 
@@ -833,15 +866,15 @@
       bars += `<span style="height:${h}px" data-bar="${i}"></span>`;
     }
 
-    const tickHtml = who === 'me' ? '<span class="wa-tick">✓</span>' : '';
-    bubble.innerHTML = `
+    bubble.innerHTML = `<div class="wa-bubble__reply-placeholder"></div>
       <div class="wa-voice-bubble">
         <button type="button" class="wa-voice-play">▶</button>
         <div class="wa-voice-waveform">${bars}</div>
         <span class="wa-voice-duration">${formatDuration(duration)}</span>
       </div>
-      <span class="wa-bubble__time">${formatBubbleTime(timestamp || Date.now())}${tickHtml}</span>
+      <span class="wa-bubble__time">${formatBubbleTime(timestamp || Date.now())}</span>
     `;
+    decorateThreadBubble(bubble, meta, who);
 
     const audio = new Audio(audioData);
     const playBtn = bubble.querySelector('.wa-voice-play');
@@ -888,6 +921,142 @@
     const m = Math.floor(s / 60);
     const r = s % 60;
     return `${m}:${r.toString().padStart(2, '0')}`;
+  }
+
+  function messagePreview(meta) {
+    if (!meta) return 'Message';
+    if (meta.deleted) return 'Message deleted';
+    if (meta.msgType === 'gif') return '🎞️ GIF';
+    if (meta.msgType === 'voice') return '🎤 Voice message';
+    return String(meta.text || 'Message').slice(0, 180);
+  }
+
+  function decorateThreadBubble(bubble, meta = {}, who = 'them') {
+    if (!bubble) return;
+    if (meta.id || bubble.dataset.msgId) bubble.dataset.msgId = meta.id || bubble.dataset.msgId;
+    bubble.dataset.fromId = meta.fromId || '';
+    bubble.dataset.toId = meta.toId || '';
+    const reply = meta.replyTo;
+    const replyBox = bubble.querySelector('.wa-bubble__reply-placeholder');
+    if (replyBox && reply && reply.id) {
+      replyBox.className = 'wa-bubble__reply';
+      replyBox.innerHTML = `<strong>↩ ${escapeHtml(reply.fromId === myDeviceId ? 'You' : 'Contact')}</strong><span>${escapeHtml(messagePreview(reply))}</span>`;
+    } else if (replyBox) replyBox.remove();
+
+    const time = bubble.querySelector('.wa-bubble__time');
+    if (time && who === 'me') {
+      const status = meta.read ? 'read' : meta.delivered ? 'delivered' : 'sent';
+      time.innerHTML = `${formatBubbleTime(meta.createdAt || Date.now())}<span class="wa-tick ${status === 'read' ? 'wa-tick--read' : ''}" data-status="${status}">${status === 'sent' ? '✓' : '✓✓'}</span>${meta.editedAt ? '<span class="wa-edited">edited</span>' : ''}`;
+    }
+    renderReactionBar(bubble, meta.reactions || []);
+    attachBubbleActions(bubble, meta, who);
+  }
+
+  function attachBubbleActions(bubble, meta, who) {
+    if (bubble.querySelector('.wa-message-actions')) return;
+    const actions = document.createElement('div');
+    actions.className = 'wa-message-actions';
+    actions.innerHTML = `<button type="button" data-action="reply">↩</button><button type="button" data-action="react">😊</button>${who === 'me' && meta.msgType === 'text' ? '<button type="button" data-action="edit">✎</button>' : ''}${who === 'me' ? '<button type="button" data-action="delete">🗑</button>' : ''}`;
+    actions.addEventListener('click', (e) => {
+      const btn = e.target.closest('button');
+      if (!btn) return;
+      e.stopPropagation();
+      const action = btn.dataset.action;
+      if (action === 'reply') setReplyFromBubble(bubble);
+      if (action === 'react') showReactionChoices(bubble);
+      if (action === 'edit') editBubble(bubble);
+      if (action === 'delete') deleteBubble(bubble);
+    });
+    bubble.appendChild(actions);
+    let pressTimer = null;
+    bubble.addEventListener('contextmenu', e => { e.preventDefault(); toggleBubbleActions(bubble); });
+    bubble.addEventListener('touchstart', () => { pressTimer = setTimeout(() => toggleBubbleActions(bubble), 500); }, { passive: true });
+    ['touchend','touchmove','touchcancel'].forEach(ev => bubble.addEventListener(ev, () => clearTimeout(pressTimer), { passive: true }));
+    bubble.addEventListener('click', e => { if (e.target.closest('button')) return; if (window.matchMedia('(max-width: 520px)').matches) toggleBubbleActions(bubble); });
+  }
+
+  function toggleBubbleActions(bubble) {
+    document.querySelectorAll('.wa-bubble.show-actions').forEach(b => { if (b !== bubble) b.classList.remove('show-actions'); });
+    bubble.classList.toggle('show-actions');
+  }
+
+  function setReplyFromBubble(bubble) {
+    const id = bubble.dataset.msgId;
+    if (!id) return;
+    const textEl = bubble.querySelector('.wa-bubble__text');
+    selectedReply = { id, fromId: bubble.dataset.fromId || '', msgType: bubble.classList.contains('wa-gif-bubble') ? 'gif' : bubble.querySelector('.wa-voice-bubble') ? 'voice' : 'text', text: textEl ? textEl.textContent : (bubble.querySelector('.wa-gif-image') ? '🎞️ GIF' : '🎤 Voice message') };
+    replyComposerPreview.textContent = messagePreview(selectedReply);
+    replyComposer.classList.remove('hidden');
+    threadInput.focus();
+  }
+
+  function clearReply() { selectedReply = null; replyComposer.classList.add('hidden'); }
+
+  function showReactionChoices(bubble) {
+    let picker = bubble.querySelector('.wa-reaction-picker');
+    if (picker) { picker.remove(); return; }
+    picker = document.createElement('div');
+    picker.className = 'wa-reaction-picker';
+    ['❤️','😂','👍','😮','😢','🔥'].forEach(emoji => {
+      const b = document.createElement('button'); b.type = 'button'; b.textContent = emoji;
+      b.addEventListener('click', () => { sendWs('message_reaction', { id: bubble.dataset.msgId, emoji }); picker.remove(); });
+      picker.appendChild(b);
+    });
+    bubble.appendChild(picker);
+  }
+
+  function renderReactionBar(bubble, reactions) {
+    let bar = bubble.querySelector('.wa-reactions');
+    if (!reactions || !reactions.length) { if (bar) bar.remove(); return; }
+    const counts = {};
+    reactions.forEach(r => counts[r.emoji] = (counts[r.emoji] || 0) + 1);
+    if (!bar) { bar = document.createElement('div'); bar.className = 'wa-reactions'; bubble.appendChild(bar); }
+    bar.innerHTML = Object.entries(counts).map(([e,c]) => `<span>${e}${c > 1 ? `<b>${c}</b>` : ''}</span>`).join('');
+  }
+
+  function updateMessageStatus(id, status) {
+    const bubble = threadLog.querySelector(`[data-msg-id="${CSS.escape(String(id))}"]`);
+    if (!bubble) return;
+    const tick = bubble.querySelector('.wa-tick');
+    if (!tick) return;
+    tick.dataset.status = status;
+    tick.textContent = status === 'sent' ? '✓' : '✓✓';
+    tick.classList.toggle('wa-tick--read', status === 'read');
+  }
+
+  function updateMessageText(id, text, edited) {
+    const bubble = threadLog.querySelector(`[data-msg-id="${CSS.escape(String(id))}"]`);
+    if (!bubble) return;
+    const textEl = bubble.querySelector('.wa-bubble__text');
+    if (textEl) textEl.textContent = text;
+    if (edited && !bubble.querySelector('.wa-edited')) { const time = bubble.querySelector('.wa-bubble__time'); if (time) { const e = document.createElement('span'); e.className='wa-edited'; e.textContent='edited'; time.appendChild(e); } }
+  }
+
+  function updateMessageDeleted(id) {
+    const bubble = threadLog.querySelector(`[data-msg-id="${CSS.escape(String(id))}"]`);
+    if (!bubble) return;
+    bubble.classList.add('wa-bubble--deleted');
+    bubble.querySelectorAll('img,.wa-voice-bubble,.wa-message-actions,.wa-reactions,.wa-reaction-picker').forEach(el => el.remove());
+    const text = bubble.querySelector('.wa-bubble__text');
+    if (text) text.textContent = 'This message was deleted'; else { const t = document.createElement('span'); t.className='wa-bubble__text'; t.textContent='This message was deleted'; bubble.prepend(t); }
+  }
+
+  function updateMessageReactions(id, reactions) {
+    const bubble = threadLog.querySelector(`[data-msg-id="${CSS.escape(String(id))}"]`);
+    if (bubble) renderReactionBar(bubble, reactions);
+  }
+
+  function editBubble(bubble) {
+    if (!bubble.dataset.msgId) return;
+    const current = bubble.querySelector('.wa-bubble__text')?.textContent || '';
+    const next = window.prompt('Edit message', current);
+    if (next === null || !next.trim() || next.trim() === current) return;
+    sendWs('message_edit', { id: bubble.dataset.msgId, text: next.trim() });
+  }
+
+  function deleteBubble(bubble) {
+    if (!bubble.dataset.msgId) return;
+    if (window.confirm('Delete this message for everyone?')) sendWs('message_delete', { id: bubble.dataset.msgId });
   }
 
   function markThreadBubblesRead() {
@@ -937,6 +1106,25 @@
     typingIndicator.classList.add('hidden');
   }
 
+  function formatLastSeen(dateValue) {
+    if (!dateValue) return 'Offline';
+    const d = new Date(dateValue); if (Number.isNaN(d.getTime())) return 'Offline';
+    const diff = Math.max(0, Date.now() - d.getTime());
+    if (diff < 60000) return 'Last seen just now';
+    if (diff < 3600000) return `Last seen ${Math.floor(diff / 60000)}m ago`;
+    if (diff < 86400000) return `Last seen ${Math.floor(diff / 3600000)}h ago`;
+    return `Last seen ${d.toLocaleDateString([], { day: 'numeric', month: 'short' })}`;
+  }
+
+  function updateThreadPresence(id) {
+    const p = presenceById.get(id);
+    if (!threadPresenceLabel) return;
+    threadPresenceLabel.textContent = p?.online ? 'Online' : formatLastSeen(p?.lastSeenAt);
+    threadPresenceLabel.classList.toggle('online', !!p?.online);
+  }
+
+  function updateContactPresence(id) { renderInboxList(); }
+
   // ---------- Inbox rendering ----------
   function updateInboxBadge() {
     const totalUnread = latestContacts.reduce((sum, c) => sum + (c.unreadCount || 0), 0);
@@ -972,7 +1160,7 @@
             <span class="inbox-row__time${unread ? ' inbox-row__time--unread' : ''}">${formatInboxTime(c.lastAt)}</span>
           </div>
           <div class="inbox-row__bottom">
-            <span class="inbox-row__preview">${c.lastMessage ? escapeHtml(c.lastMessage) : 'Say hi…'}</span>
+            <span class="inbox-row__preview">${c.online ? '<span class="presence-dot">●</span> Online' : (c.lastMessage ? escapeHtml(c.lastMessage) : formatLastSeen(c.lastSeenAt))}</span>
             <div class="inbox-row__actions">
               ${unread ? `<span class="inbox-row__badge">${c.unreadCount > 99 ? '99+' : c.unreadCount}</span>` : ''}
               <button type="button" class="inbox-row__delete" aria-label="Delete contact" title="Delete contact">🗑</button>
@@ -1394,6 +1582,8 @@
     currentThreadContactId = contactId;
     threadWithLabel.textContent = name;
     renderAvatarInto(threadAvatar, avatarId);
+    presenceById.set(contactId, { online: !!(latestContacts.find(c => c.contactId === contactId)?.online), lastSeenAt: latestContacts.find(c => c.contactId === contactId)?.lastSeenAt });
+    updateThreadPresence(contactId);
     threadLog.innerHTML = '';
     threadTypingRow = null;
     showScreen('thread');
@@ -1579,7 +1769,9 @@
     reader.onload = () => sendWs('send_inbox_gif', {
       toDeviceId: currentThreadContactId,
       gifData: reader.result,
+      replyTo: selectedReply
     });
+      clearReply();
     reader.readAsDataURL(file);
   }
 
@@ -1600,7 +1792,8 @@
       addSystemBubble('GIF is too large (max 3 MB).');
       return;
     }
-    sendWs('send_inbox_gif', { toDeviceId: currentThreadContactId, gifData: source });
+    sendWs('send_inbox_gif', { toDeviceId: currentThreadContactId, gifData: source, replyTo: selectedReply });
+    clearReply();
   }
 
   // ---------- GIPHY GIF picker ----------
@@ -1669,7 +1862,8 @@
 
   function sendSelectedGif(url) {
     if (!currentThreadContactId || !url) return;
-    sendWs('send_inbox_gif', { toDeviceId: currentThreadContactId, gifData: url });
+    sendWs('send_inbox_gif', { toDeviceId: currentThreadContactId, gifData: url, replyTo: selectedReply });
+    clearReply();
     closeGifPicker();
   }
 
@@ -1682,6 +1876,8 @@
     event.preventDefault();
     searchGifs(gifSearchInput.value);
   });
+
+  replyComposerClose.addEventListener('click', clearReply);
 
   callBtn.addEventListener('click', startCall);
   callAcceptBtn.addEventListener('click', acceptIncomingCall);
@@ -1699,8 +1895,9 @@
     e.preventDefault();
     const text = threadInput.textContent.trim();
     if (!text || !currentThreadContactId) return;
-    sendWs('send_inbox_message', { toDeviceId: currentThreadContactId, text });
+    sendWs('send_inbox_message', { toDeviceId: currentThreadContactId, text, replyTo: selectedReply });
     threadInput.innerHTML = '';
+    clearReply();
   });
 
   // ---------- Voice note recording ----------
@@ -1758,7 +1955,9 @@
             toDeviceId: currentThreadContactId,
             audioData: reader.result, // data: URL, works directly as an <audio> src
             duration: durationSeconds,
+            replyTo: selectedReply
           });
+          clearReply();
         };
         reader.readAsDataURL(blob);
       }

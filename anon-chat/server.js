@@ -164,6 +164,13 @@ wss.on('connection', (ws) => {
         if (!deviceId) return;
         wsDeviceId.set(ws, deviceId);
         deviceOnline.set(deviceId, ws);
+        // Tell this user's contacts that they are online.
+        db.getContacts(deviceId).then(contacts => {
+          contacts.forEach(c => {
+            const contactWs = deviceOnline.get(c.contactId);
+            if (contactWs) send(contactWs, 'presence', { deviceId, online: true });
+          });
+        }).catch(() => {});
         break;
       }
 
@@ -311,6 +318,9 @@ wss.on('connection', (ws) => {
         const myId = wsDeviceId.get(ws);
         if (!myId) { send(ws, 'contacts_list', { contacts: [] }); break; }
         db.getContacts(myId).then((contacts) => {
+          contacts.forEach(c => {
+            c.online = !!deviceOnline.get(c.contactId);
+          });
           send(ws, 'contacts_list', { contacts });
         });
         break;
@@ -336,7 +346,7 @@ wss.on('connection', (ws) => {
           });
           // Tell the other person (if online) that their messages were just read.
           const theirWs = deviceOnline.get(theirId);
-          if (theirWs) send(theirWs, 'read_receipt', { byId: myId });
+          if (theirWs) send(theirWs, 'read_receipt', { byId: myId, contactId: myId });
         });
         break;
       }
@@ -354,23 +364,69 @@ wss.on('connection', (ws) => {
         const myId = wsDeviceId.get(ws);
         const toId = String(msg.toDeviceId || '');
         const text = String(msg.text || '').slice(0, 2000).trim();
-        if (!myId || !toId || !text) break;
+        if (!myId || !toId || !text || myId === toId) break;
+        const replyTo = msg.replyTo && msg.replyTo.id ? {
+          id: String(msg.replyTo.id).slice(0, 64),
+          fromId: String(msg.replyTo.fromId || '').slice(0, 128),
+          msgType: String(msg.replyTo.msgType || 'text').slice(0, 16),
+          text: String(msg.replyTo.text || '').slice(0, 180)
+        } : null;
 
-        db.saveMessage(myId, toId, text).then((saved) => {
-          const payload = {
-            id: saved && saved._id ? String(saved._id) : `local-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-            msgType: 'text',
-            fromId: myId,
-            toId,
-            text,
-            createdAt: saved ? saved.createdAt : new Date(),
-          };
-          // Ack the sender so their UI updates immediately.
+        db.saveMessage(myId, toId, text, replyTo).then(async (saved) => {
+          const id = saved && saved._id ? String(saved._id) : `local-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+          const payload = { id, msgType: 'text', fromId: myId, toId, text, replyTo,
+            createdAt: saved ? saved.createdAt : new Date(), delivered: false, read: false, editedAt: null, deleted: false, reactions: [] };
           send(ws, 'inbox_message', payload);
-          // Push live to the recipient if they're currently online.
           const recipientWs = deviceOnline.get(toId);
-          if (recipientWs) send(recipientWs, 'inbox_message', payload);
+          if (recipientWs) {
+            const delivered = saved ? await db.markMessageDelivered(id) : null;
+            payload.delivered = true;
+            payload.deliveredAt = delivered?.deliveredAt || new Date();
+            send(recipientWs, 'inbox_message', payload);
+            send(ws, 'message_status', { id, status: 'delivered' });
+          }
         });
+        break;
+      }
+
+      case 'message_edit': {
+        const myId = wsDeviceId.get(ws);
+        const id = String(msg.id || '');
+        const text = String(msg.text || '').slice(0, 2000).trim();
+        if (!myId || !id || !text) break;
+        const updated = await db.editMessage(id, myId, text);
+        if (!updated) break;
+        const payload = { id, text: updated.text, editedAt: updated.editedAt };
+        send(ws, 'message_edited', payload);
+        const recipientWs = deviceOnline.get(updated.toId);
+        if (recipientWs) send(recipientWs, 'message_edited', payload);
+        break;
+      }
+
+      case 'message_delete': {
+        const myId = wsDeviceId.get(ws);
+        const id = String(msg.id || '');
+        if (!myId || !id) break;
+        const deleted = await db.deleteMessage(id, myId);
+        if (!deleted) break;
+        const payload = { id, deleted: true };
+        send(ws, 'message_deleted', payload);
+        const recipientWs = deviceOnline.get(deleted.toId);
+        if (recipientWs) send(recipientWs, 'message_deleted', payload);
+        break;
+      }
+
+      case 'message_reaction': {
+        const myId = wsDeviceId.get(ws);
+        const id = String(msg.id || '');
+        const emoji = String(msg.emoji || '').slice(0, 4);
+        if (!myId || !id || !emoji) break;
+        const updated = await db.toggleReaction(id, myId, emoji);
+        if (!updated) break;
+        const payload = { id, reactions: updated.reactions || [] };
+        send(ws, 'message_reactions', payload);
+        const recipientWs = deviceOnline.get(updated.fromId === myId ? updated.toId : updated.fromId);
+        if (recipientWs) send(recipientWs, 'message_reactions', payload);
         break;
       }
 
@@ -436,18 +492,19 @@ wss.on('connection', (ws) => {
         }
         if (!(await db.areContacts(myId, toId))) break;
 
-        db.saveGifMessage(myId, toId, gifData).then((saved) => {
+        const replyTo = msg.replyTo && msg.replyTo.id ? { id: String(msg.replyTo.id).slice(0,64), fromId: String(msg.replyTo.fromId || '').slice(0,128), msgType: String(msg.replyTo.msgType || 'gif').slice(0,16), text: String(msg.replyTo.text || '').slice(0,180) } : null;
+        db.saveGifMessage(myId, toId, gifData, replyTo).then(async (saved) => {
           const payload = {
             id: saved && saved._id ? String(saved._id) : `local-${Date.now()}-${Math.random().toString(36).slice(2)}`,
             msgType: 'gif',
             fromId: myId,
             toId,
             gifData,
-            createdAt: saved ? saved.createdAt : new Date(),
+            createdAt: saved ? saved.createdAt : new Date(), replyTo, delivered: false, read: false, reactions: []
           };
           send(ws, 'inbox_message', payload);
           const recipientWs = deviceOnline.get(toId);
-          if (recipientWs) send(recipientWs, 'inbox_message', payload);
+          if (recipientWs) { if (saved) await db.markMessageDelivered(payload.id); payload.delivered = true; send(recipientWs, 'inbox_message', payload); send(ws, 'message_status', { id: payload.id, status: 'delivered' }); }
         });
         break;
       }
@@ -467,7 +524,8 @@ wss.on('connection', (ws) => {
           break;
         }
 
-        db.saveVoiceMessage(myId, toId, audioData, duration).then((saved) => {
+        const replyTo = msg.replyTo && msg.replyTo.id ? { id: String(msg.replyTo.id).slice(0,64), fromId: String(msg.replyTo.fromId || '').slice(0,128), msgType: String(msg.replyTo.msgType || 'voice').slice(0,16), text: String(msg.replyTo.text || '').slice(0,180) } : null;
+        db.saveVoiceMessage(myId, toId, audioData, duration, replyTo).then(async (saved) => {
           const payload = {
             id: saved && saved._id ? String(saved._id) : `local-${Date.now()}-${Math.random().toString(36).slice(2)}`,
             msgType: 'voice',
@@ -476,10 +534,11 @@ wss.on('connection', (ws) => {
             audioData,
             duration,
             createdAt: saved ? saved.createdAt : new Date(),
+            replyTo, delivered: false, read: false, reactions: []
           };
           send(ws, 'inbox_message', payload);
           const recipientWs = deviceOnline.get(toId);
-          if (recipientWs) send(recipientWs, 'inbox_message', payload);
+          if (recipientWs) { if (saved) await db.markMessageDelivered(payload.id); payload.delivered = true; send(recipientWs, 'inbox_message', payload); send(ws, 'message_status', { id: payload.id, status: 'delivered' }); }
         });
         break;
       }
@@ -493,7 +552,16 @@ wss.on('connection', (ws) => {
     names.delete(ws);
     avatars.delete(ws);
     const deviceId = wsDeviceId.get(ws);
-    if (deviceId && deviceOnline.get(deviceId) === ws) deviceOnline.delete(deviceId);
+    if (deviceId && deviceOnline.get(deviceId) === ws) {
+      deviceOnline.delete(deviceId);
+      db.touchContactLastSeen(deviceId).catch(() => {});
+      db.getContacts(deviceId).then(contacts => {
+        contacts.forEach(c => {
+          const contactWs = deviceOnline.get(c.contactId);
+          if (contactWs) send(contactWs, 'presence', { deviceId, online: false, lastSeenAt: new Date().toISOString() });
+        });
+      }).catch(() => {});
+    }
     wsDeviceId.delete(ws);
     broadcastOnlineCount();
   });

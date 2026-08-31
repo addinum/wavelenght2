@@ -20,6 +20,7 @@ const contactSchema = new mongoose.Schema({
   contactName: { type: String, default: 'Stranger' },
   contactAvatar: { type: String, default: 'boy1' },
   createdAt: { type: Date, default: Date.now },
+  lastSeenAt: { type: Date, default: Date.now },
 });
 contactSchema.index({ ownerId: 1, contactId: 1 }, { unique: true });
 
@@ -33,6 +34,21 @@ const messageSchema = new mongoose.Schema({
   duration: { type: Number, default: null },  // seconds, voice notes only
   createdAt: { type: Date, default: Date.now },
   read: { type: Boolean, default: false },
+  delivered: { type: Boolean, default: false },
+  deliveredAt: { type: Date, default: null },
+  readAt: { type: Date, default: null },
+  editedAt: { type: Date, default: null },
+  deleted: { type: Boolean, default: false },
+  replyTo: {
+    id: { type: String, default: null },
+    fromId: { type: String, default: null },
+    msgType: { type: String, default: 'text' },
+    text: { type: String, default: '' },
+  },
+  reactions: [{
+    userId: { type: String },
+    emoji: { type: String },
+  }],
 });
 
 const Account = mongoose.model('Account', accountSchema);
@@ -211,6 +227,8 @@ async function getContacts(ownerId) {
         unreadCount,
         lastMessage: lastMsg ? (lastMsg.msgType === 'voice' ? '🎤 Voice message' : lastMsg.msgType === 'gif' ? '🎞️ GIF' : lastMsg.text) : null,
         lastAt: lastMsg ? lastMsg.createdAt : c.createdAt,
+        online: false,
+        lastSeenAt: c.lastSeenAt || c.createdAt,
       });
     }
     results.sort((a, b) => new Date(b.lastAt) - new Date(a.lastAt));
@@ -222,10 +240,10 @@ async function getContacts(ownerId) {
 }
 
 // ---- Messages ----
-async function saveMessage(fromId, toId, text) {
+async function saveMessage(fromId, toId, text, replyTo = null) {
   if (!isReady()) return null;
   try {
-    const msg = await Message.create({ fromId, toId, msgType: 'text', text });
+    const msg = await Message.create({ fromId, toId, msgType: 'text', text, replyTo: replyTo || undefined });
     return msg;
   } catch (err) {
     console.error('saveMessage failed:', err.message);
@@ -233,10 +251,10 @@ async function saveMessage(fromId, toId, text) {
   }
 }
 
-async function saveVoiceMessage(fromId, toId, audioData, duration) {
+async function saveVoiceMessage(fromId, toId, audioData, duration, replyTo = null) {
   if (!isReady()) return null;
   try {
-    const msg = await Message.create({ fromId, toId, msgType: 'voice', audioData, duration });
+    const msg = await Message.create({ fromId, toId, msgType: 'voice', audioData, duration, replyTo: replyTo || undefined });
     return msg;
   } catch (err) {
     console.error('saveVoiceMessage failed:', err.message);
@@ -244,10 +262,10 @@ async function saveVoiceMessage(fromId, toId, audioData, duration) {
   }
 }
 
-async function saveGifMessage(fromId, toId, gifData) {
+async function saveGifMessage(fromId, toId, gifData, replyTo = null) {
   if (!isReady()) return null;
   try {
-    const msg = await Message.create({ fromId, toId, msgType: 'gif', gifData });
+    const msg = await Message.create({ fromId, toId, msgType: 'gif', gifData, replyTo: replyTo || undefined });
     return msg;
   } catch (err) {
     console.error('saveGifMessage failed:', err.message);
@@ -274,10 +292,55 @@ async function getThread(userA, userB) {
 async function markThreadRead(fromId, toId) {
   if (!isReady()) return;
   try {
-    await Message.updateMany({ fromId, toId, read: false }, { $set: { read: true } });
+    await Message.updateMany({ fromId, toId, read: false }, { $set: { read: true, readAt: new Date(), delivered: true, deliveredAt: new Date() } });
   } catch (err) {
     console.error('markThreadRead failed:', err.message);
   }
+}
+
+
+async function markMessageDelivered(messageId) {
+  if (!isReady() || !messageId) return null;
+  try { return await Message.findByIdAndUpdate(messageId, { $set: { delivered: true, deliveredAt: new Date() } }, { new: true }).lean(); }
+  catch (err) { console.error('markMessageDelivered failed:', err.message); return null; }
+}
+
+async function markMessagesRead(fromId, toId) {
+  if (!isReady()) return;
+  try { await Message.updateMany({ fromId, toId, read: false }, { $set: { read: true, readAt: new Date(), delivered: true, deliveredAt: new Date() } }); }
+  catch (err) { console.error('markMessagesRead failed:', err.message); }
+}
+
+async function editMessage(messageId, ownerId, text) {
+  if (!isReady()) return null;
+  try { return await Message.findOneAndUpdate({ _id: messageId, fromId: ownerId, msgType: 'text', deleted: { $ne: true } }, { $set: { text, editedAt: new Date() } }, { new: true }).lean(); }
+  catch (err) { console.error('editMessage failed:', err.message); return null; }
+}
+
+async function deleteMessage(messageId, ownerId) {
+  if (!isReady()) return null;
+  try { return await Message.findOneAndUpdate({ _id: messageId, fromId: ownerId }, { $set: { deleted: true, text: '', gifData: null, audioData: null, editedAt: null } }, { new: true }).lean(); }
+  catch (err) { console.error('deleteMessage failed:', err.message); return null; }
+}
+
+async function toggleReaction(messageId, userId, emoji) {
+  if (!isReady()) return null;
+  try {
+    const msg = await Message.findById(messageId);
+    if (!msg) return null;
+    const idx = (msg.reactions || []).findIndex(r => r.userId === userId);
+    if (idx >= 0 && msg.reactions[idx].emoji === emoji) msg.reactions.splice(idx, 1);
+    else if (idx >= 0) msg.reactions[idx].emoji = emoji;
+    else msg.reactions.push({ userId, emoji });
+    await msg.save();
+    return msg.toObject();
+  } catch (err) { console.error('toggleReaction failed:', err.message); return null; }
+}
+
+async function touchContactLastSeen(deviceId) {
+  if (!isReady() || !deviceId) return;
+  try { await Contact.updateMany({ contactId: deviceId }, { $set: { lastSeenAt: new Date() } }); }
+  catch (err) { console.error('touchContactLastSeen failed:', err.message); }
 }
 
 module.exports = {
@@ -296,4 +359,10 @@ module.exports = {
   saveGifMessage,
   getThread,
   markThreadRead,
+  markMessageDelivered,
+  markMessagesRead,
+  editMessage,
+  deleteMessage,
+  toggleReaction,
+  touchContactLastSeen,
 };
