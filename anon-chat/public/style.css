@@ -1864,27 +1864,91 @@ button:focus-visible, input:focus-visible {
 .call-action--decline, .call-hangup { background: var(--danger); }
 .call-action--accept { background: var(--online); }
 
+/* Active call: compact bar pinned to the TOP so chat remains usable. */
 .call-bar {
   position: fixed;
+  top: max(10px, env(safe-area-inset-top));
   left: 50%;
-  bottom: max(18px, env(safe-area-inset-bottom));
   transform: translateX(-50%);
-  z-index: 90;
-  width: min(430px, calc(100% - 24px));
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 12px;
+  z-index: 95;
+  width: min(470px, calc(100% - 20px));
+  display: block;
   border: 1px solid var(--line);
   border-radius: 18px;
   background: var(--panel-solid);
   backdrop-filter: blur(18px);
   box-shadow: 0 12px 40px rgba(0,0,0,.45), 0 0 24px var(--accent-glow);
+  overflow: hidden;
+}
+.call-bar__main {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 12px;
+  text-align: left;
 }
 .call-bar__info { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.call-bar__avatar { width: 42px; height: 42px; }
+.call-bar__avatar { width: 40px; height: 40px; }
+.call-bar__details { min-width: 0; }
 .call-bar__info strong, .call-bar__info span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .call-bar__info strong { color: var(--text); font-size: 14px; }
 .call-bar__info span { color: var(--text-faint); font-size: 11.5px; margin-top: 2px; }
-.call-hangup { width: 44px; height: 44px; font-size: 17px; transform: rotate(135deg); }
+.call-bar__chevron { color: var(--text-faint); font-size: 18px; transition: transform .2s ease; }
+.call-bar.expanded .call-bar__chevron { transform: rotate(180deg); }
+.call-bar__controls {
+  display: none;
+  grid-template-columns: 1fr 1fr 1fr 1fr 1fr;
+  gap: 7px;
+  padding: 0 10px 10px;
+  border-top: 1px solid rgba(255,255,255,.07);
+}
+.call-bar.expanded .call-bar__controls { display: grid; }
+.call-stat, .call-control {
+  min-height: 52px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,.08);
+  background: rgba(255,255,255,.045);
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.call-stat { flex-direction: column; gap: 2px; }
+.call-stat__label { color: var(--text-faint); font-size: 9px; text-transform: uppercase; letter-spacing: .08em; }
+.call-stat strong { font-size: 15px; }
+.call-control { cursor: pointer; flex-direction: column; gap: 2px; font-size: 17px; }
+.call-control span { font-size: 9px; color: var(--text-faint); }
+.call-control:hover, .call-control[aria-pressed="true"] { border-color: var(--accent); background: rgba(255,255,255,.08); }
+.call-control--hangup { background: var(--danger); border-color: transparent; }
+.call-control--hangup span { color: #fff; }
+
+@media (max-width: 520px) {
+  .call-bar {
+    width: calc(100% - 14px);
+    top: max(6px, env(safe-area-inset-top));
+    border-radius: 16px;
+  }
+  .call-bar__main { padding: 8px 10px; }
+  .call-bar__avatar { width: 38px; height: 38px; }
+  .call-bar__controls { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 5px; padding: 0 7px 7px; }
+  .call-stat, .call-control { min-height: 50px; }
+  .call-stat strong { font-size: 14px; }
+  .call-stat--quality { display: flex; }
+}
+
+/* Audio output control is intentionally mobile-only. Desktop browsers do not
+   have a reliable phone speaker/receiver concept. */
+@media (min-width: 521px) {
+  #callSpeakerBtn { display: none !important; }
+  .call-bar__controls { grid-template-columns: 1.2fr repeat(3, 1fr); }
+}
+
+@media (max-width: 520px) {
+  #callSpeakerBtn { display: flex; }
+}

@@ -97,6 +97,12 @@
   const activeCallName = document.getElementById('activeCallName');
   const activeCallStatus = document.getElementById('activeCallStatus');
   const callHangupBtn = document.getElementById('callHangupBtn');
+  const callBarMain = document.getElementById('callBarMain');
+  const callBarControls = document.getElementById('callBarControls');
+  const callDuration = document.getElementById('callDuration');
+  const callQuality = document.getElementById('callQuality');
+  const callSpeakerBtn = document.getElementById('callSpeakerBtn');
+  const callMuteBtn = document.getElementById('callMuteBtn');
   const remoteAudio = document.getElementById('remoteAudio');
 
   let ws = null;
@@ -117,14 +123,33 @@
   let activeCallContactName = 'Contact';
   let activeCallContactAvatar = 'boy1';
   let pendingIncomingCall = null;
-  const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+  let callStartedAt = null;
+  let callTimerInterval = null;
+  let isCallMuted = false;
+  let isSpeakerOn = true;
+  let pendingIceCandidates = [];
+  let callDisconnectTimer = null;
+  let callReconnectInProgress = false;
+  let callStatsTimer = null;
+  let callHistory = [];
+  let activeCallDirection = 'outgoing';
+  loadCallHistory();
+  const rtcConfig = {
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' },
+      { urls: 'stun:stun.cloudflare.com:3478' }
+    ],
+    bundlePolicy: 'max-bundle',
+    rtcpMuxPolicy: 'require'
+  };
 
   // ---------- Persistent device identity (for the inbox feature only) ----------
   const DEVICE_ID_KEY = 'wavelength_device_id';
 
   // Add your GIPHY Web API key here. GIPHY requires an API key for search.
   // Keep the key in the frontend config because GIPHY's Search endpoint is a client-side API.
-  const GIPHY_API_KEY ="Dw0k6Lxznqo0D34MwiTwmakhcvyHcYqX";
+  const GIPHY_API_KEY = window.GIPHY_API_KEY || '';
   const GIPHY_SEARCH_URL = 'https://api.giphy.com/v1/gifs/search';
 
   function getDeviceId() {
@@ -971,16 +996,180 @@
     renderAvatarInto(el, avatarId || 'boy1');
   }
 
+  function loadCallHistory() {
+    try { callHistory = JSON.parse(localStorage.getItem('wavelength_call_history') || '[]'); } catch (_) { callHistory = []; }
+  }
+
+  function saveCallHistory(entry) {
+    try {
+      callHistory.unshift(entry);
+      callHistory = callHistory.slice(0, 50);
+      localStorage.setItem('wavelength_call_history', JSON.stringify(callHistory));
+    } catch (_) {}
+  }
+
+  function startCallQualityMonitor() {
+    clearInterval(callStatsTimer);
+    callQuality.textContent = 'Good';
+    callStatsTimer = setInterval(async () => {
+      if (!peerConnection) return;
+      try {
+        const stats = await peerConnection.getStats();
+        let packetsLost = 0, packetsReceived = 0, jitter = 0;
+        stats.forEach(r => {
+          if (r.type === 'inbound-rtp' && r.kind === 'audio') {
+            packetsLost += r.packetsLost || 0;
+            packetsReceived += r.packetsReceived || 0;
+            jitter = Math.max(jitter, r.jitter || 0);
+          }
+        });
+        const lossPct = packetsReceived + packetsLost ? (packetsLost / (packetsReceived + packetsLost)) * 100 : 0;
+        callQuality.textContent = lossPct > 8 || jitter > 0.08 ? 'Poor' : lossPct > 3 || jitter > 0.04 ? 'Fair' : 'Good';
+      } catch (_) {}
+    }, 3000);
+  }
+
+  function stopCallQualityMonitor() {
+    clearInterval(callStatsTimer);
+    callStatsTimer = null;
+    if (callQuality) callQuality.textContent = 'Good';
+  }
+
+  function formatCallDuration(ms) {
+    const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = String(totalSeconds % 60).padStart(2, '0');
+    return `${minutes}:${seconds}`;
+  }
+
+  function startCallTimer() {
+    if (!callStartedAt) callStartedAt = Date.now();
+    clearInterval(callTimerInterval);
+    callDuration.textContent = '0:00';
+    callTimerInterval = setInterval(() => {
+      if (callStartedAt) callDuration.textContent = formatCallDuration(Date.now() - callStartedAt);
+    }, 1000);
+  }
+
+  function stopCallTimer() {
+    clearInterval(callTimerInterval);
+    callTimerInterval = null;
+    callStartedAt = null;
+    callDuration.textContent = '0:00';
+  }
+
   function showActiveCall(name, avatar, status) {
     activeCallName.textContent = name || 'Contact';
     activeCallStatus.textContent = status || 'Calling…';
     setCallAvatar(activeCallAvatar, avatar);
     activeCallBar.classList.remove('hidden');
+    activeCallBar.classList.remove('expanded');
+    callBarMain.setAttribute('aria-expanded', 'false');
+    callDuration.textContent = '0:00';
+    if (callQuality) callQuality.textContent = 'Good';
+    callMuteBtn.setAttribute('aria-pressed', String(isCallMuted));
+    updateSpeakerButton();
   }
 
   function hideCallUI() {
     incomingCallModal.classList.add('hidden');
     activeCallBar.classList.add('hidden');
+    activeCallBar.classList.remove('expanded');
+    callBarMain.setAttribute('aria-expanded', 'false');
+    stopCallTimer();
+    stopCallQualityMonitor();
+  }
+
+  function setCallConnected() {
+    activeCallStatus.textContent = 'Connected';
+    startCallTimer();
+    startCallQualityMonitor();
+  }
+
+  const isMobileCallDevice = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+  function updateSpeakerButton() {
+    callSpeakerBtn.setAttribute('aria-pressed', String(isSpeakerOn));
+    const label = callSpeakerBtn.querySelector('span');
+    if (label) label.textContent = isSpeakerOn ? 'Speaker' : 'Receiver';
+    callSpeakerBtn.title = isSpeakerOn
+      ? 'Speaker on — tap for phone receiver'
+      : 'Phone receiver — tap for speaker';
+  }
+
+  async function applyAudioRoute(speakerOn) {
+    if (!isMobileCallDevice) return false;
+
+    // Native Android bridge: this is the only reliable way to select the
+    // Android loudspeaker vs. the phone's earpiece/receiver.
+    if (window.Android && typeof window.Android.setSpeakerphoneOn === 'function') {
+      window.Android.setSpeakerphoneOn(!!speakerOn);
+      return true;
+    }
+
+    // Browser output routing is supported only by some browsers/devices.
+    // Never claim receiver mode unless the browser actually exposes an output.
+    if (typeof remoteAudio.setSinkId === 'function') {
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const outputs = devices.filter(d => d.kind === 'audiooutput');
+        const speaker = outputs.find(d => /speaker|default/i.test(d.label));
+        const receiver = outputs.find(d => /earpiece|receiver|communications|telephony|headset/i.test(d.label));
+        const target = speakerOn ? (speaker || outputs[0]) : receiver;
+        if (target) {
+          await remoteAudio.setSinkId(target.deviceId);
+          return true;
+        }
+      } catch (err) {
+        console.warn('Browser audio output routing unavailable:', err);
+      }
+    }
+
+    // Some browsers expose selectAudioOutput. It cannot force Android's
+    // hidden receiver unless that receiver is exposed as a selectable device.
+    if (navigator.mediaDevices && typeof navigator.mediaDevices.selectAudioOutput === 'function' && !speakerOn) {
+      try {
+        const selected = await navigator.mediaDevices.selectAudioOutput();
+        if (selected && typeof remoteAudio.setSinkId === 'function') {
+          await remoteAudio.setSinkId(selected.deviceId);
+          return true;
+        }
+      } catch (_) {}
+    }
+
+    return false;
+  }
+
+  async function toggleSpeaker() {
+    if (!isMobileCallDevice || !activeCallContactId) return;
+    const next = !isSpeakerOn;
+    try {
+      const routed = await applyAudioRoute(next);
+      if (routed) {
+        isSpeakerOn = next;
+        updateSpeakerButton();
+        return;
+      }
+
+      // Keep state honest on normal mobile browsers: JavaScript cannot force
+      // Chrome/Android to use the hidden earpiece. Do not show a fake state.
+      alert(next
+        ? 'Your browser cannot control the phone speaker directly.'
+        : 'Your browser cannot switch to the phone receiver directly. This requires the Android app/audio bridge.');
+    } catch (err) {
+      console.warn('Audio output switching failed:', err);
+    }
+  }
+
+  if (!isMobileCallDevice) {
+    callSpeakerBtn.style.display = 'none';
+  }
+
+  function toggleCallMute() {
+    isCallMuted = !isCallMuted;
+    if (localCallStream) localCallStream.getAudioTracks().forEach(track => { track.enabled = !isCallMuted; });
+    callMuteBtn.setAttribute('aria-pressed', String(isCallMuted));
+    callMuteBtn.querySelector('span').textContent = isCallMuted ? 'Unmute' : 'Mute';
   }
 
   function sendCallSignal(toDeviceId, signalType, data) {
@@ -988,33 +1177,105 @@
   }
 
   async function createPeerConnection(contactId, isOfferer) {
-    if (peerConnection) peerConnection.close();
+    if (peerConnection) {
+      peerConnection.onconnectionstatechange = null;
+      peerConnection.oniceconnectionstatechange = null;
+      peerConnection.close();
+    }
+    pendingIceCandidates = [];
     peerConnection = new RTCPeerConnection(rtcConfig);
+    const pc = peerConnection;
 
-    peerConnection.onicecandidate = (event) => {
+    pc.onicecandidate = (event) => {
       if (event.candidate) sendCallSignal(contactId, 'ice', event.candidate);
     };
-    peerConnection.ontrack = (event) => {
-      remoteAudio.srcObject = event.streams[0];
-      remoteAudio.play().catch(() => {});
+
+    pc.ontrack = (event) => {
+      const stream = event.streams && event.streams[0];
+      if (!stream) return;
+      remoteAudio.srcObject = stream;
+      remoteAudio.autoplay = true;
+      remoteAudio.playsInline = true;
+      remoteAudio.muted = false;
+      remoteAudio.volume = 1;
+      const playPromise = remoteAudio.play();
+      if (playPromise) playPromise.catch(() => {
+        // A user gesture (accept/call button) will normally unlock playback.
+      });
     };
-    peerConnection.onconnectionstatechange = () => {
-      if (!peerConnection) return;
-      if (['connected'].includes(peerConnection.connectionState)) activeCallStatus.textContent = 'Connected';
-      if (['failed', 'disconnected', 'closed'].includes(peerConnection.connectionState)) endCall(false);
+
+    pc.onconnectionstatechange = () => {
+      if (pc !== peerConnection) return;
+      const state = pc.connectionState;
+      if (state === 'connected') {
+        clearTimeout(callDisconnectTimer);
+        callDisconnectTimer = null;
+        callReconnectInProgress = false;
+        setCallConnected();
+      } else if (state === 'disconnected') {
+        // Mobile networks can briefly report disconnected during handoff.
+        // Do not end a call immediately; give ICE a chance to recover.
+        clearTimeout(callDisconnectTimer);
+        callDisconnectTimer = setTimeout(() => {
+          if (peerConnection === pc && pc.connectionState === 'disconnected') {
+            try { pc.restartIce(); } catch (_) {}
+          }
+        }, 2500);
+      } else if (state === 'failed') {
+        clearTimeout(callDisconnectTimer);
+        callDisconnectTimer = setTimeout(() => {
+          if (peerConnection === pc && pc.connectionState === 'failed') {
+            endCall(false);
+          }
+        }, 7000);
+      } else if (state === 'closed') {
+        if (activeCallContactId) endCall(false);
+      }
+    };
+
+    pc.oniceconnectionstatechange = () => {
+      if (pc !== peerConnection) return;
+      const state = pc.iceConnectionState;
+      if (state === 'connected' || state === 'completed') {
+        clearTimeout(callDisconnectTimer);
+        callDisconnectTimer = null;
+        callReconnectInProgress = false;
+      } else if (state === 'disconnected') {
+        clearTimeout(callDisconnectTimer);
+        callDisconnectTimer = setTimeout(() => {
+          if (peerConnection === pc && pc.iceConnectionState === 'disconnected') {
+            try { pc.restartIce(); } catch (_) {}
+          }
+        }, 2000);
+      } else if (state === 'failed' && !callReconnectInProgress) {
+        callReconnectInProgress = true;
+        try { pc.restartIce(); } catch (_) {}
+      }
     };
 
     if (!localCallStream) {
-      localCallStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      localCallStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          channelCount: 1,
+          sampleRate: 48000
+        },
+        video: false
+      });
     }
-    localCallStream.getTracks().forEach((track) => peerConnection.addTrack(track, localCallStream));
+    localCallStream.getAudioTracks().forEach(track => {
+      track.enabled = !isCallMuted;
+      pc.addTrack(track, localCallStream);
+    });
 
     if (isOfferer) {
-      const offer = await peerConnection.createOffer();
-      await peerConnection.setLocalDescription(offer);
-      sendCallSignal(contactId, 'offer', peerConnection.localDescription);
+      const offer = await pc.createOffer({ offerToReceiveAudio: true });
+      await pc.setLocalDescription(offer);
+      sendCallSignal(contactId, 'offer', pc.localDescription);
     }
-    return peerConnection;
+    return pc;
   }
 
   async function startCall() {
@@ -1027,6 +1288,8 @@
       activeCallContactId = currentThreadContactId;
       activeCallContactName = threadWithLabel.textContent || 'Contact';
       activeCallContactAvatar = latestContacts.find(c => c.contactId === activeCallContactId)?.avatar || 'boy1';
+      isCallMuted = false;
+      isSpeakerOn = true;
       showActiveCall(activeCallContactName, activeCallContactAvatar, 'Calling…');
       await createPeerConnection(activeCallContactId, false);
       sendWs('call_invite', {
@@ -1049,6 +1312,9 @@
     activeCallContactId = call.fromId;
     activeCallContactName = call.fromName || 'Contact';
     activeCallContactAvatar = call.fromAvatar || 'boy1';
+    isCallMuted = false;
+    isSpeakerOn = true;
+    activeCallDirection = 'incoming';
     showActiveCall(activeCallContactName, activeCallContactAvatar, 'Connecting…');
     try {
       await createPeerConnection(call.fromId, false);
@@ -1066,7 +1332,15 @@
   }
 
   function endCall(notify = true) {
+    clearTimeout(callDisconnectTimer);
+    callDisconnectTimer = null;
+    callReconnectInProgress = false;
+    pendingIceCandidates = [];
     const contactId = activeCallContactId;
+    const durationMs = callStartedAt ? Date.now() - callStartedAt : 0;
+    if (contactId && activeCallContactName) {
+      saveCallHistory({ contactId, name: activeCallContactName, avatar: activeCallContactAvatar || 'boy1', direction: activeCallDirection, endedAt: new Date().toISOString(), duration: Math.floor(durationMs / 1000) });
+    }
     if (notify && contactId) sendWs('call_end', { toDeviceId: contactId });
     if (peerConnection) {
       peerConnection.onconnectionstatechange = null;
@@ -1085,20 +1359,31 @@
   async function handleCallSignal(msg) {
     if (!activeCallContactId || msg.fromId !== activeCallContactId || !msg.data) return;
     try {
+      if (!peerConnection) return;
+
       if (msg.signalType === 'accept') {
-        if (!peerConnection) await createPeerConnection(activeCallContactId, false);
-        const offer = await peerConnection.createOffer();
+        const offer = await peerConnection.createOffer({ offerToReceiveAudio: true });
         await peerConnection.setLocalDescription(offer);
         sendCallSignal(activeCallContactId, 'offer', peerConnection.localDescription);
       } else if (msg.signalType === 'offer') {
         await peerConnection.setRemoteDescription(new RTCSessionDescription(msg.data));
+        for (const candidate of pendingIceCandidates.splice(0)) {
+          try { await peerConnection.addIceCandidate(new RTCIceCandidate(candidate)); } catch (_) {}
+        }
         const answer = await peerConnection.createAnswer();
         await peerConnection.setLocalDescription(answer);
         sendCallSignal(activeCallContactId, 'answer', peerConnection.localDescription);
       } else if (msg.signalType === 'answer') {
         await peerConnection.setRemoteDescription(new RTCSessionDescription(msg.data));
+        for (const candidate of pendingIceCandidates.splice(0)) {
+          try { await peerConnection.addIceCandidate(new RTCIceCandidate(candidate)); } catch (_) {}
+        }
       } else if (msg.signalType === 'ice') {
-        await peerConnection.addIceCandidate(new RTCIceCandidate(msg.data));
+        if (peerConnection.remoteDescription && peerConnection.remoteDescription.type) {
+          await peerConnection.addIceCandidate(new RTCIceCandidate(msg.data));
+        } else {
+          pendingIceCandidates.push(msg.data);
+        }
       }
     } catch (err) {
       console.error('call signaling failed:', err);
@@ -1401,7 +1686,14 @@
   callBtn.addEventListener('click', startCall);
   callAcceptBtn.addEventListener('click', acceptIncomingCall);
   callDeclineBtn.addEventListener('click', declineIncomingCall);
-  callHangupBtn.addEventListener('click', () => endCall(true));
+  callHangupBtn.addEventListener('click', (event) => { event.stopPropagation(); endCall(true); });
+  callBarMain.addEventListener('click', () => {
+    const expanded = activeCallBar.classList.toggle('expanded');
+    callBarMain.setAttribute('aria-expanded', String(expanded));
+  });
+  callBarControls.addEventListener('click', (event) => event.stopPropagation());
+  callMuteBtn.addEventListener('click', toggleCallMute);
+  callSpeakerBtn.addEventListener('click', toggleSpeaker);
 
   threadForm.addEventListener('submit', (e) => {
     e.preventDefault();

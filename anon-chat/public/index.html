@@ -241,15 +241,30 @@
   </div>
 </div>
 
-<div id="activeCallBar" class="call-bar hidden">
-  <div class="call-bar__info">
-    <div class="call-bar__avatar" id="activeCallAvatar">?</div>
-    <div>
-      <strong id="activeCallName">Contact</strong>
-      <span id="activeCallStatus">Calling…</span>
+<div id="activeCallBar" class="call-bar hidden" aria-label="Active call">
+  <button type="button" id="callBarMain" class="call-bar__main" aria-expanded="false">
+    <div class="call-bar__info">
+      <div class="call-bar__avatar" id="activeCallAvatar">?</div>
+      <div class="call-bar__details">
+        <strong id="activeCallName">Contact</strong>
+        <span id="activeCallStatus">Calling…</span>
+      </div>
     </div>
+    <span class="call-bar__chevron" aria-hidden="true">⌃</span>
+  </button>
+  <div class="call-bar__controls" id="callBarControls">
+    <div class="call-stat">
+      <span class="call-stat__label">Duration</span>
+      <strong id="callDuration">0:00</strong>
+    </div>
+    <div class="call-stat call-stat--quality">
+      <span class="call-stat__label">Connection</span>
+      <strong id="callQuality">Good</strong>
+    </div>
+    <button type="button" id="callSpeakerBtn" class="call-control" aria-pressed="false" title="Speaker">🔊<span>Speaker</span></button>
+    <button type="button" id="callMuteBtn" class="call-control" aria-pressed="false" title="Mute microphone">🎙️<span>Mute</span></button>
+    <button type="button" id="callHangupBtn" class="call-control call-control--hangup" title="End call">☎<span>End</span></button>
   </div>
-  <button type="button" id="callHangupBtn" class="call-hangup">☎</button>
 </div>
 <audio id="remoteAudio" autoplay playsinline></audio>
 
