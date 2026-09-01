@@ -16,6 +16,7 @@
 
 <!-- ===== LANDING SCREEN ===== -->
 <section id="landing" class="screen">
+  <button type="button" id="wavelengthDarkModeToggle" class="wl-dark-toggle" aria-label="Toggle dark mode">🌙 Dark Mode</button>
   <p class="online-count" id="onlineCount">— people online now</p>
 
   <div class="dial-visual" aria-hidden="true">
@@ -293,5 +294,28 @@
 
 <script src="script.js"></script>
 <script>window.GIPHY_API_KEY = window.GIPHY_API_KEY || '';</script>
+
+<script>
+(function () {
+  const KEY = "wavelength-theme";
+  const button = document.getElementById("wavelengthDarkModeToggle");
+  function applyDarkMode(dark) {
+    document.documentElement.classList.toggle("wl-dark", dark);
+    document.body.classList.toggle("wl-dark", dark);
+    if (button) {
+      button.textContent = dark ? "☀️ Light Mode" : "🌙 Dark Mode";
+      button.setAttribute("aria-pressed", String(dark));
+    }
+  }
+  applyDarkMode(localStorage.getItem(KEY) === "dark");
+  if (button) {
+    button.addEventListener("click", function () {
+      const dark = !document.documentElement.classList.contains("wl-dark");
+      localStorage.setItem(KEY, dark ? "dark" : "light");
+      applyDarkMode(dark);
+    });
+  }
+})();
+</script>
 </body>
 </html>

@@ -1991,3 +1991,81 @@ button:focus-visible, input:focus-visible {
   .wa-reaction-picker { bottom:calc(100% + 46px); max-width:calc(100vw - 30px); }
   .wa-bubble { max-width:88%; }
 }
+
+/* WAVELENGTH BLACK & GREY DARK MODE */
+html.wl-dark, body.wl-dark { background:#000 !important; color:#e5e5e5 !important; }
+.wl-dark body,.wl-dark main,.wl-dark section,.wl-dark article,.wl-dark .app,.wl-dark .container,.wl-dark .page,.wl-dark .chat,.wl-dark .chat-container,.wl-dark .inbox,.wl-dark .sidebar,.wl-dark .messages { background:#000 !important;color:#e5e5e5 !important; }
+.wl-dark header,.wl-dark nav,.wl-dark aside,.wl-dark .header,.wl-dark .chat-header,.wl-dark .chat-input,.wl-dark .composer,.wl-dark .bottom-nav,.wl-dark .panel,.wl-dark .card,.wl-dark .modal,.wl-dark .dialog { background:#0b0b0b !important;color:#e5e5e5 !important;border-color:#292929 !important; }
+.wl-dark input,.wl-dark textarea,.wl-dark select,.wl-dark button { background:#151515 !important;color:#e5e5e5 !important;border-color:#303030 !important; }
+.wl-dark input::placeholder,.wl-dark textarea::placeholder { color:#777 !important; }
+.wl-dark button:hover { background:#242424 !important; }
+.wl-dark .message,.wl-dark .message-bubble,.wl-dark .bubble,.wl-dark .incoming,.wl-dark .received { background:#171717 !important;color:#e5e5e5 !important;border-color:#292929 !important; }
+.wl-dark .sent,.wl-dark .outgoing,.wl-dark .own-message { background:#292929 !important;color:#f2f2f2 !important; }
+.wl-dark .gif-picker,.wl-dark .gif-results,.wl-dark .gif-search,.wl-dark .gif-result,.wl-dark .call-bar,.wl-dark .call-controls,.wl-dark .active-call,.wl-dark .call-panel,.wl-dark .menu,.wl-dark .dropdown,.wl-dark .context-menu { background:#0b0b0b !important;color:#e5e5e5 !important;border-color:#292929 !important; }
+.wl-dark hr { border-color:#292929 !important; }.wl-dark a { color:#d4d4d4 !important; }
+.wl-dark ::-webkit-scrollbar-track { background:#050505; }.wl-dark ::-webkit-scrollbar-thumb { background:#333;border-radius:8px; }
+#wavelengthDarkModeToggle { border:1px solid #303030 !important;background:#151515 !important;color:#e5e5e5 !important;border-radius:10px;padding:8px 12px;cursor:pointer;font:inherit; }
+
+/* WAVELENGTH DARK MODE - FINAL UI OVERRIDES */
+html.wl-dark, html.wl-dark body { background:#000 !important; color:#e5e5e5 !important; }
+html.wl-dark * { border-color:#2b2b2b !important; }
+html.wl-dark .header, html.wl-dark header, html.wl-dark nav,
+html.wl-dark .sidebar, html.wl-dark .chat-header, html.wl-dark .chat-input,
+html.wl-dark .composer, html.wl-dark .modal, html.wl-dark .card,
+html.wl-dark .panel, html.wl-dark .inbox, html.wl-dark .chat-container {
+  background:#0b0b0b !important; color:#e5e5e5 !important;
+}
+html.wl-dark input, html.wl-dark textarea, html.wl-dark select,
+html.wl-dark button { background:#151515 !important; color:#e5e5e5 !important; }
+html.wl-dark .message, html.wl-dark .message-bubble, html.wl-dark .bubble,
+html.wl-dark .incoming, html.wl-dark .received { background:#171717 !important; color:#e5e5e5 !important; }
+html.wl-dark .sent, html.wl-dark .outgoing, html.wl-dark .own-message { background:#292929 !important; color:#fff !important; }
+html.wl-dark #wavelengthDarkModeToggle { background:#202020 !important; color:#fff !important; border-color:#555 !important; }
+
+/* ===== DARK MODE TOGGLE: HOMEPAGE ONLY ===== */
+.wl-dark-toggle {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 20;
+  padding: 9px 13px;
+  border: 1px solid #444 !important;
+  border-radius: 10px;
+  background: #151515 !important;
+  color: #eee !important;
+  cursor: pointer;
+  font: 600 13px Arial, sans-serif;
+  box-shadow: 0 4px 14px rgba(0,0,0,.25);
+}
+.wl-dark-toggle:hover { background: #222 !important; }
+
+/* In dark mode, outgoing messages are neutral grey instead of pink. */
+html.wl-dark .wa-bubble--me {
+  background: #2b2b2b !important;
+  color: #f1f1f1 !important;
+  border-color: #414141 !important;
+  box-shadow: 0 3px 12px rgba(0,0,0,.45) !important;
+}
+html.wl-dark .wa-bubble--them {
+  background: #171717 !important;
+  color: #e6e6e6 !important;
+  border-color: #303030 !important;
+}
+html.wl-dark .wa-bubble--me .wa-bubble__time { color: #999 !important; }
+html.wl-dark .wa-bubble--me .wa-tick { color: #aaa !important; text-shadow: none !important; }
+html.wl-dark .wa-bubble--me .wa-tick--read { color: #d6d6d6 !important; text-shadow: none !important; }
+
+/* Dark GIF bubbles should also stay neutral grey. */
+html.wl-dark .wa-gif-bubble.wa-bubble--me {
+  background: #202020 !important;
+  border-color: #3a3a3a !important;
+}
+
+@media (max-width: 520px) {
+  .wl-dark-toggle {
+    top: 12px;
+    right: 12px;
+    padding: 8px 11px;
+    font-size: 12px;
+  }
+}
