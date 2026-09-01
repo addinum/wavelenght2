@@ -340,14 +340,23 @@ wss.on('connection', (ws) => {
         const myId = wsDeviceId.get(ws);
         const theirId = String(msg.contactId || '');
         if (!myId || !theirId) break;
-        db.markThreadRead(theirId, myId).then(() => {
-          db.getThread(myId, theirId).then((messages) => {
-            send(ws, 'thread_history', { contactId: theirId, messages });
-          });
+        db.markThreadRead(theirId, myId).then(async () => {
+          const page = await db.getThreadPage(myId, theirId, 30);
+          send(ws, 'thread_history', { contactId: theirId, ...page });
           // Tell the other person (if online) that their messages were just read.
           const theirWs = deviceOnline.get(theirId);
           if (theirWs) send(theirWs, 'read_receipt', { byId: myId, contactId: myId });
         });
+        break;
+      }
+
+      case 'load_older_thread': {
+        const myId = wsDeviceId.get(ws);
+        const theirId = String(msg.contactId || '');
+        const beforeId = String(msg.beforeId || '');
+        if (!myId || !theirId || !beforeId) break;
+        const page = await db.getThreadPage(myId, theirId, 30, beforeId);
+        send(ws, 'older_thread_history', { contactId: theirId, ...page });
         break;
       }
 

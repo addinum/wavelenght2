@@ -118,6 +118,10 @@
   let reconnectAttempts = 0;
   let userInitiatedClose = false;
   let currentThreadContactId = null;
+  let threadOldestId = null;
+  let threadHasMore = false;
+  let loadingOlderThread = false;
+  let threadRenderTarget = threadLog;
   let latestContacts = [];
   let selectedReply = null;
   let presenceById = new Map();
@@ -678,21 +682,33 @@
       case 'thread_history':
         if (msg.contactId === currentThreadContactId) {
           threadLog.innerHTML = '';
-          msg.messages.forEach((m) => {
-            const who = m.fromId === myDeviceId ? 'me' : 'them';
-            if (m.msgType === 'voice') {
-              addVoiceBubble(m.audioData, m.duration, who, m.createdAt, m._id || m.id, m);
-            } else if (m.msgType === 'gif') {
-              addGifBubble(m.gifData, who, m.createdAt, m._id || m.id, m);
-            } else {
-              addThreadBubble(m.text, who, m.createdAt, m._id || m.id, m);
-            }
-          });
-          // IMPORTANT: never mark our own messages as read merely because
-          // history was loaded. The read state must come from MongoDB / a real
-          // read receipt generated when the recipient actually opens the thread.
-          // This prevents sent messages from becoming blue ticks after leaving
-          // and reopening the inbox while the contact is still offline.
+          threadTypingRow = null;
+          threadOldestId = msg.oldestId || null;
+          threadHasMore = !!msg.hasMore;
+          const previousTarget = threadRenderTarget;
+          threadRenderTarget = threadLog;
+          for (const m of (msg.messages || [])) renderThreadMessage(m);
+          threadRenderTarget = previousTarget;
+          requestAnimationFrame(() => { threadLog.scrollTop = threadLog.scrollHeight; });
+        }
+        break;
+
+      case 'older_thread_history':
+        if (msg.contactId === currentThreadContactId) {
+          const beforeHeight = threadLog.scrollHeight;
+          const beforeTop = threadLog.scrollTop;
+          const temp = document.createElement('div');
+          const previousTarget = threadRenderTarget;
+          threadRenderTarget = temp;
+          for (const m of (msg.messages || [])) renderThreadMessage(m);
+          threadRenderTarget = previousTarget;
+          const fragment = document.createDocumentFragment();
+          while (temp.firstChild) fragment.appendChild(temp.firstChild);
+          threadLog.prepend(fragment);
+          threadOldestId = msg.oldestId || threadOldestId;
+          threadHasMore = !!msg.hasMore;
+          loadingOlderThread = false;
+          requestAnimationFrame(() => { threadLog.scrollTop = beforeTop + (threadLog.scrollHeight - beforeHeight); });
         }
         break;
 
@@ -793,6 +809,17 @@
     logEl.scrollTop = logEl.scrollHeight;
   }
 
+  function renderThreadMessage(m) {
+    const who = m.fromId === myDeviceId ? 'me' : 'them';
+    if (m.msgType === 'voice') {
+      addVoiceBubble(m.audioData, m.duration, who, m.createdAt, m._id || m.id, m);
+    } else if (m.msgType === 'gif') {
+      addGifBubble(m.gifData, who, m.createdAt, m._id || m.id, m);
+    } else {
+      addThreadBubble(m.text, who, m.createdAt, m._id || m.id, m);
+    }
+  }
+
   // WhatsApp-style bubble for the Inbox/Thread screen (includes timestamp + read ticks).
   function addThreadBubble(text, who, timestamp, msgId, meta = {}) {
     const urlRegex = /(https?:\/\/[^\s]+)/g;
@@ -812,8 +839,8 @@
     decorateThreadBubble(bubble, meta, who);
 
     row.appendChild(bubble);
-    threadLog.appendChild(row);
-    threadLog.scrollTop = threadLog.scrollHeight;
+    threadRenderTarget.appendChild(row);
+    if (threadRenderTarget === threadLog) threadLog.scrollTop = threadLog.scrollHeight;
   }
 
   // GIF bubble: displays the animated GIF inside a compact WhatsApp-style bubble.
@@ -848,8 +875,8 @@
     bubble.appendChild(timeMeta);
     decorateThreadBubble(bubble, meta, who);
     row.appendChild(bubble);
-    threadLog.appendChild(row);
-    threadLog.scrollTop = threadLog.scrollHeight;
+    threadRenderTarget.appendChild(row);
+    if (threadRenderTarget === threadLog) threadLog.scrollTop = threadLog.scrollHeight;
   }
 
   // Voice note bubble: play/pause button + a decorative waveform that fills
@@ -916,8 +943,8 @@
     });
 
     row.appendChild(bubble);
-    threadLog.appendChild(row);
-    threadLog.scrollTop = threadLog.scrollHeight;
+    threadRenderTarget.appendChild(row);
+    if (threadRenderTarget === threadLog) threadLog.scrollTop = threadLog.scrollHeight;
   }
 
   function formatDuration(seconds) {
@@ -1590,11 +1617,20 @@
     updateThreadPresence(contactId);
     threadLog.innerHTML = '';
     threadTypingRow = null;
+    threadOldestId = null;
+    threadHasMore = false;
+    loadingOlderThread = false;
     showScreen('thread');
     pushNavState('thread');
     sendWs('open_thread', { contactId });
     threadInput.focus();
   }
+
+  threadLog.addEventListener('scroll', () => {
+    if (threadLog.scrollTop > 80 || !threadHasMore || loadingOlderThread || !currentThreadContactId) return;
+    loadingOlderThread = true;
+    sendWs('load_older_thread', { contactId: currentThreadContactId, beforeId: threadOldestId });
+  });
 
   // ---------- Landing actions ----------
   startBtn.addEventListener('click', () => {

@@ -273,19 +273,29 @@ async function saveGifMessage(fromId, toId, gifData, replyTo = null) {
   }
 }
 
-async function getThread(userA, userB) {
-  if (!isReady()) return [];
+async function getThreadPage(userA, userB, limit = 30, beforeId = null) {
+  if (!isReady()) return { messages: [], hasMore: false, oldestId: null };
   try {
-    const messages = await Message.find({
+    const safeLimit = Math.min(Math.max(Number(limit) || 30, 10), 50);
+    const query = {
       $or: [
         { fromId: userA, toId: userB },
         { fromId: userB, toId: userA },
       ],
-    }).sort({ createdAt: 1 }).lean();
-    return messages;
+    };
+    if (beforeId && mongoose.isValidObjectId(beforeId)) {
+      query._id = { $lt: beforeId };
+    }
+    const rows = await Message.find(query)
+      .sort({ _id: -1 })
+      .limit(safeLimit + 1)
+      .lean();
+    const hasMore = rows.length > safeLimit;
+    const messages = rows.slice(0, safeLimit).reverse();
+    return { messages, hasMore, oldestId: messages.length ? String(messages[0]._id) : null };
   } catch (err) {
-    console.error('getThread failed:', err.message);
-    return [];
+    console.error('getThreadPage failed:', err.message);
+    return { messages: [], hasMore: false, oldestId: null };
   }
 }
 
@@ -357,7 +367,7 @@ module.exports = {
   saveMessage,
   saveVoiceMessage,
   saveGifMessage,
-  getThread,
+  getThreadPage,
   markThreadRead,
   markMessageDelivered,
   markMessagesRead,
