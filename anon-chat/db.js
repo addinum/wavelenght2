@@ -27,7 +27,7 @@ contactSchema.index({ ownerId: 1, contactId: 1 }, { unique: true });
 const messageSchema = new mongoose.Schema({
   fromId: { type: String, required: true, index: true },
   toId: { type: String, required: true, index: true },
-  msgType: { type: String, enum: ['text', 'voice', 'gif'], default: 'text' },
+  msgType: { type: String, enum: ['text', 'voice', 'gif', 'file'], default: 'text' },
   text: { type: String, default: '' },
   gifData: { type: String, default: null },
   audioData: { type: String, default: null }, // base64-encoded audio, voice notes only
@@ -225,7 +225,7 @@ async function getContacts(ownerId) {
         name: c.contactName,
         avatar: c.contactAvatar || 'boy1',
         unreadCount,
-        lastMessage: lastMsg ? (lastMsg.msgType === 'voice' ? '🎤 Voice message' : lastMsg.msgType === 'gif' ? '🎞️ GIF' : lastMsg.text) : null,
+        lastMessage: lastMsg ? (lastMsg.msgType === 'voice' ? '🎤 Voice message' : lastMsg.msgType === 'gif' ? '🎞️ GIF' : lastMsg.msgType === 'file' ? `📎 ${lastMsg.fileName || 'File'}` : lastMsg.text) : null,
         lastAt: lastMsg ? lastMsg.createdAt : c.createdAt,
         online: false,
         lastSeenAt: c.lastSeenAt || c.createdAt,
@@ -269,6 +269,20 @@ async function saveGifMessage(fromId, toId, gifData, replyTo = null) {
     return msg;
   } catch (err) {
     console.error('saveGifMessage failed:', err.message);
+    return null;
+  }
+}
+
+async function saveFileMessage(fromId, toId, fileData, fileName, fileMimeType, fileSize, replyTo = null) {
+  if (!isReady()) return null;
+  try {
+    const msg = await Message.create({
+      fromId, toId, msgType: 'file', fileData, fileName, fileMimeType, fileSize,
+      replyTo: replyTo || undefined
+    });
+    return msg;
+  } catch (err) {
+    console.error('saveFileMessage failed:', err.message);
     return null;
   }
 }
@@ -367,6 +381,7 @@ module.exports = {
   saveMessage,
   saveVoiceMessage,
   saveGifMessage,
+  saveFileMessage,
   getThreadPage,
   markThreadRead,
   markMessageDelivered,

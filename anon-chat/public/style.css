@@ -1454,13 +1454,26 @@ h1 {
 }
 
 @media (max-width: 360px) {
+  /* Keep two GIFs per row even on narrow phones. */
   .gif-results {
-    grid-template-columns: 1fr;
-    grid-auto-rows: 180px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-auto-rows: 150px;
+    gap: 7px;
+    padding: 0 8px 12px;
   }
 
   .gif-result {
-    height: 180px;
+    width: 100%;
+    height: 150px;
+    border-radius: 10px;
+  }
+
+  .gif-result img {
+    width: 100%;
+    height: 100%;
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
   }
 }
 
@@ -2068,4 +2081,111 @@ html.wl-dark .wa-gif-bubble.wa-bubble--me {
     padding: 8px 11px;
     font-size: 12px;
   }
+}
+
+/* ---------- Inbox document/file sending ---------- */
+.wa-file-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: var(--panel-raised);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: border-color .15s, box-shadow .15s, transform .15s;
+}
+.wa-file-btn:hover {
+  border-color: var(--accent);
+  box-shadow: 0 0 16px var(--accent-glow);
+  transform: scale(1.04);
+}
+
+.wa-file-bubble {
+  width: min(82vw, 330px);
+  max-width: min(82vw, 330px);
+  padding: 6px;
+  overflow: hidden;
+}
+.wa-file-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px;
+  border-radius: 13px;
+  background: rgba(255,255,255,.07);
+  border: 1px solid rgba(255,255,255,.09);
+}
+.wa-file-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,0,0,.18);
+  font-size: 22px;
+  flex-shrink: 0;
+}
+.wa-file-info {
+  min-width: 0;
+  flex: 1;
+}
+.wa-file-name {
+  font-size: 14px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wa-file-meta {
+  margin-top: 3px;
+  color: var(--text-faint);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wa-file-open {
+  flex-shrink: 0;
+  color: var(--text) !important;
+  text-decoration: none;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 7px 9px;
+  font-size: 11px;
+  font-weight: 700;
+  background: var(--panel-raised);
+}
+.wa-file-open:hover { border-color: var(--accent); }
+.wa-file-image {
+  display: block;
+  width: 100%;
+  max-height: 280px;
+  object-fit: contain;
+  border-radius: 10px;
+  margin-bottom: 6px;
+  background: rgba(0,0,0,.16);
+}
+
+html.wl-dark .wa-file-card {
+  background: #151515 !important;
+  border-color: #303030 !important;
+}
+html.wl-dark .wa-file-icon,
+html.wl-dark .wa-file-open {
+  background: #202020 !important;
+  border-color: #3a3a3a !important;
+  color: #e5e5e5 !important;
+}
+
+@media (max-width: 520px) {
+  .wa-file-btn, .wa-call-btn { width: 38px; height: 38px; }
+  .wa-file-bubble { width: min(84vw, 310px); max-width: min(84vw, 310px); }
+  .wa-file-image { max-height: 230px; }
 }

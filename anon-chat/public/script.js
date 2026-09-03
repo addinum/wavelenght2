@@ -91,6 +91,8 @@
   const recordCancelBtn = document.getElementById('recordCancelBtn');
   const recordSendBtn = document.getElementById('recordSendBtn');
   const callBtn = document.getElementById('callBtn');
+  const fileBtn = document.getElementById('fileBtn');
+  const fileInput = document.getElementById('fileInput');
   const incomingCallModal = document.getElementById('incomingCallModal');
   const incomingCallAvatar = document.getElementById('incomingCallAvatar');
   const incomingCallName = document.getElementById('incomingCallName');
@@ -724,6 +726,8 @@
             addVoiceBubble(msg.audioData, msg.duration, who, msg.createdAt, msg.id, msg);
           } else if (msg.msgType === 'gif') {
             addGifBubble(msg.gifData, who, msg.createdAt, msg.id, msg);
+          } else if (msg.msgType === 'file') {
+            addFileBubble(msg, who);
           } else {
             addThreadBubble(msg.text, who, msg.createdAt, msg.id, msg);
           }
@@ -759,6 +763,10 @@
 
       case 'voice_note_rejected':
         addSystemBubble(msg.reason || "Couldn't send that voice note.");
+        break;
+
+      case 'file_rejected':
+        addSystemBubble(msg.reason || "Couldn't send that file.");
         break;
 
       case 'call_invite':
@@ -815,6 +823,8 @@
       addVoiceBubble(m.audioData, m.duration, who, m.createdAt, m._id || m.id, m);
     } else if (m.msgType === 'gif') {
       addGifBubble(m.gifData, who, m.createdAt, m._id || m.id, m);
+    } else if (m.msgType === 'file') {
+      addFileBubble(m, who);
     } else {
       addThreadBubble(m.text, who, m.createdAt, m._id || m.id, m);
     }
@@ -877,6 +887,86 @@
     row.appendChild(bubble);
     threadRenderTarget.appendChild(row);
     if (threadRenderTarget === threadLog) threadLog.scrollTop = threadLog.scrollHeight;
+  }
+
+  // Generic file/document bubble. Any browser-readable file type can be selected;
+  // images get an inline preview, while PDFs and other formats get a clean file card.
+  function addFileBubble(fileMeta, who) {
+    const data = String(fileMeta?.fileData || '');
+    if (!/^data:[^;,]+;base64,[A-Za-z0-9+/=]+$/i.test(data)) return;
+
+    const row = document.createElement('div');
+    row.className = `wa-bubble-row wa-bubble-row--${who === 'me' ? 'me' : 'them'}`;
+
+    const bubble = document.createElement('div');
+    bubble.className = `wa-bubble wa-bubble--${who === 'me' ? 'me' : 'them'} wa-file-bubble`;
+    if (fileMeta.id || fileMeta._id) bubble.dataset.msgId = fileMeta.id || fileMeta._id;
+
+    const replyPlaceholder = document.createElement('div');
+    replyPlaceholder.className = 'wa-bubble__reply-placeholder';
+    bubble.appendChild(replyPlaceholder);
+
+    const mime = String(fileMeta.fileMimeType || 'application/octet-stream').toLowerCase();
+    const name = String(fileMeta.fileName || 'File').slice(0, 180);
+    const size = formatFileSize(fileMeta.fileSize);
+    const isImage = mime.startsWith('image/');
+
+    if (isImage) {
+      const img = document.createElement('img');
+      img.className = 'wa-file-image';
+      img.src = data;
+      img.alt = name;
+      img.loading = 'lazy';
+      img.decoding = 'async';
+      bubble.appendChild(img);
+    }
+
+    const card = document.createElement('div');
+    card.className = 'wa-file-card';
+
+    const icon = document.createElement('div');
+    icon.className = 'wa-file-icon';
+    icon.textContent = mime === 'application/pdf' ? '📄' : isImage ? '🖼️' : '📎';
+
+    const info = document.createElement('div');
+    info.className = 'wa-file-info';
+    const title = document.createElement('div');
+    title.className = 'wa-file-name';
+    title.textContent = name;
+    const details = document.createElement('div');
+    details.className = 'wa-file-meta';
+    details.textContent = `${mime === 'application/pdf' ? 'PDF' : (mime.split('/')[1] || 'FILE').toUpperCase()} • ${size}`;
+    info.appendChild(title);
+    info.appendChild(details);
+
+    const open = document.createElement('a');
+    open.className = 'wa-file-open';
+    open.href = data;
+    open.target = '_blank';
+    open.rel = 'noopener noreferrer';
+    open.download = name;
+    open.textContent = 'Open';
+
+    card.appendChild(icon);
+    card.appendChild(info);
+    card.appendChild(open);
+    bubble.appendChild(card);
+
+    const timeMeta = document.createElement('span');
+    timeMeta.className = 'wa-bubble__time';
+    bubble.appendChild(timeMeta);
+
+    decorateThreadBubble(bubble, fileMeta, who);
+    row.appendChild(bubble);
+    threadRenderTarget.appendChild(row);
+    if (threadRenderTarget === threadLog) threadLog.scrollTop = threadLog.scrollHeight;
+  }
+
+  function formatFileSize(bytes) {
+    const n = Number(bytes) || 0;
+    if (n < 1024) return `${n} B`;
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+    return `${(n / (1024 * 1024)).toFixed(1)} MB`;
   }
 
   // Voice note bubble: play/pause button + a decorative waveform that fills
@@ -959,6 +1049,7 @@
     if (meta.deleted) return 'Message deleted';
     if (meta.msgType === 'gif') return '🎞️ GIF';
     if (meta.msgType === 'voice') return '🎤 Voice message';
+    if (meta.msgType === 'file') return `📎 ${meta.fileName || 'File'}`;
     return String(meta.text || 'Message').slice(0, 180);
   }
 
@@ -1834,6 +1925,49 @@
     }
     sendWs('send_inbox_gif', { toDeviceId: currentThreadContactId, gifData: source, replyTo: selectedReply });
     clearReply();
+  }
+
+  // ---------- File/document sending ----------
+  if (fileBtn && fileInput) {
+    fileBtn.addEventListener('click', () => {
+      if (!currentThreadContactId) return;
+      fileInput.value = '';
+      fileInput.click();
+    });
+
+    fileInput.addEventListener('change', async () => {
+      const file = fileInput.files && fileInput.files[0];
+      if (file) await sendInboxFile(file);
+      fileInput.value = '';
+    });
+  }
+
+  async function sendInboxFile(file) {
+    if (!currentThreadContactId || !file) return;
+    const MAX_FILE_BYTES = 8 * 1024 * 1024;
+    if (file.size > MAX_FILE_BYTES) {
+      addSystemBubble('File is too large. Maximum size is 8 MB.');
+      return;
+    }
+    if (file.size <= 0) {
+      addSystemBubble('That file is empty.');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      sendWs('send_inbox_file', {
+        toDeviceId: currentThreadContactId,
+        fileData: reader.result,
+        fileName: file.name,
+        fileMimeType: file.type || 'application/octet-stream',
+        fileSize: file.size,
+        replyTo: selectedReply
+      });
+      clearReply();
+    };
+    reader.onerror = () => addSystemBubble('Could not read that file.');
+    reader.readAsDataURL(file);
   }
 
   // ---------- GIPHY GIF picker ----------

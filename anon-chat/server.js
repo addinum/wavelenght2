@@ -518,6 +518,58 @@ wss.on('connection', (ws) => {
         break;
       }
 
+      case 'send_inbox_file': {
+        const myId = wsDeviceId.get(ws);
+        const toId = String(msg.toDeviceId || '');
+        const fileData = String(msg.fileData || '');
+        const fileName = String(msg.fileName || 'file').slice(0, 180);
+        const fileMimeType = String(msg.fileMimeType || 'application/octet-stream').slice(0, 120);
+        const fileSize = Math.max(0, Number(msg.fileSize) || 0);
+        // Keep files below MongoDB's 16 MB document limit while leaving room
+        // for the base64/data-url overhead and message metadata.
+        const MAX_FILE_BYTES = 8 * 1024 * 1024;
+        const MAX_FILE_DATA_LENGTH = 12 * 1024 * 1024;
+        if (!myId || !toId || myId === toId || !fileData || !fileSize || fileSize > MAX_FILE_BYTES) {
+          send(ws, 'file_rejected', { reason: 'File is too large. Maximum size is 8 MB.' });
+          break;
+        }
+        if (fileData.length > MAX_FILE_DATA_LENGTH || !/^data:[^;,]+;base64,[A-Za-z0-9+/=]+$/i.test(fileData)) {
+          send(ws, 'file_rejected', { reason: 'Unsupported or invalid file.' });
+          break;
+        }
+        if (!(await db.areContacts(myId, toId))) break;
+
+        const replyTo = msg.replyTo && msg.replyTo.id ? {
+          id: String(msg.replyTo.id).slice(0,64),
+          fromId: String(msg.replyTo.fromId || '').slice(0,128),
+          msgType: String(msg.replyTo.msgType || 'file').slice(0,16),
+          text: String(msg.replyTo.text || '').slice(0,180)
+        } : null;
+
+        db.saveFileMessage(myId, toId, fileData, fileName, fileMimeType, fileSize, replyTo).then(async (saved) => {
+          if (!saved && db.isReady()) {
+            send(ws, 'file_rejected', { reason: 'File could not be saved. Please try a smaller file.' });
+            return;
+          }
+          const payload = {
+            id: saved && saved._id ? String(saved._id) : `local-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+            msgType: 'file', fromId: myId, toId, fileData, fileName, fileMimeType, fileSize,
+            createdAt: saved ? saved.createdAt : new Date(), replyTo,
+            delivered: false, read: false, reactions: []
+          };
+          send(ws, 'inbox_message', payload);
+          const recipientWs = deviceOnline.get(toId);
+          if (recipientWs) {
+            if (saved) await db.markMessageDelivered(payload.id);
+            payload.delivered = true;
+            payload.deliveredAt = new Date();
+            send(recipientWs, 'inbox_message', payload);
+            send(ws, 'message_status', { id: payload.id, status: 'delivered' });
+          }
+        });
+        break;
+      }
+
       case 'send_inbox_voice': {
         const myId = wsDeviceId.get(ws);
         const toId = String(msg.toDeviceId || '');
