@@ -280,6 +280,11 @@
       const name = nameInput.value.trim();
       if (name) sendWs('set_name', { name });
       sendWs('set_avatar', { avatarId: getMyAvatarId() });
+      // The account may own a different canonical deviceId. Re-bind the
+      // browser's push subscription to that device after the switch.
+      if (Notification.permission === 'granted') {
+        setTimeout(() => ensurePushSubscription(), 250);
+      }
     }
 
     hideAccountModal();
@@ -528,42 +533,85 @@
     return Uint8Array.from([...rawData].map(ch => ch.charCodeAt(0)));
   }
 
-  async function ensurePushSubscription() {
-    if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) return { ok:false, error:'This browser does not support Web Push.' };
+  async function ensurePushSubscription(forceResubscribe = false) {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
+      return { ok:false, error:'This browser does not support Web Push.' };
+    }
     try {
       pushRegistration = pushRegistration || await navigator.serviceWorker.register('/sw.js');
-      if (Notification.permission !== 'granted') return { ok:false, error:'Notification permission is not granted.' };
+      if (Notification.permission !== 'granted') {
+        return { ok:false, error:'Notification permission is not granted.' };
+      }
+
       const keyRes = await fetch('/api/push/public-key', { cache: 'no-store' });
       if (!keyRes.ok) return { ok:false, error:'Server did not provide a VAPID public key.' };
       const { publicKey } = await keyRes.json();
       if (!publicKey) return { ok:false, error:'VAPID public key is empty.' };
+
+      const keyStorage = 'wavelength_vapid_public_key';
+      const previousKey = localStorage.getItem(keyStorage);
       let subscription = await pushRegistration.pushManager.getSubscription();
+
+      // A PushSubscription is cryptographically tied to the VAPID/application
+      // server key. After changing notification implementations or restarting
+      // a server with a different key, the old subscription must be replaced.
+      if (subscription && (forceResubscribe || !previousKey || previousKey !== publicKey)) {
+        try { await subscription.unsubscribe(); } catch (_) {}
+        subscription = null;
+      }
+
       if (!subscription) {
         subscription = await pushRegistration.pushManager.subscribe({
           userVisibleOnly: true,
           applicationServerKey: urlBase64ToUint8Array(publicKey)
         });
       }
+
       const saveRes = await fetch('/api/push/subscribe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ deviceId: myDeviceId, subscription: subscription.toJSON() })
+        body: JSON.stringify({
+          deviceId: myDeviceId,
+          subscription: subscription.toJSON()
+        })
       });
       const saveData = await saveRes.json().catch(() => ({}));
-      if (!saveRes.ok || !saveData.ok) return { ok:false, error:saveData.error || 'Server could not save the push subscription.' };
-      return { ok:true };
+
+      if (!saveRes.ok || !saveData.ok) {
+        return { ok:false, error:saveData.error || 'Server could not save the push subscription.' };
+      }
+
+      localStorage.setItem(keyStorage, publicKey);
+      return { ok:true, deviceId: myDeviceId };
     } catch (err) {
       console.warn('Push notifications unavailable:', err);
       return { ok:false, error:err.message || 'Push setup failed.' };
     }
   }
 
+  async function resetPushSubscription() {
+    try {
+      if (!('serviceWorker' in navigator)) return { ok:false, error:'Service workers are not supported.' };
+      pushRegistration = pushRegistration || await navigator.serviceWorker.register('/sw.js');
+      const old = await pushRegistration.pushManager.getSubscription();
+      if (old) {
+        try { await old.unsubscribe(); } catch (_) {}
+      }
+      localStorage.removeItem('wavelength_vapid_public_key');
+      return await ensurePushSubscription(true);
+    } catch (err) {
+      return { ok:false, error:err.message || 'Could not reset push subscription.' };
+    }
+  }
+
   async function testPhonePush() {
-    const result = await ensurePushSubscription();
+    let result = await ensurePushSubscription();
     if (!result?.ok) return result || { ok:false, error:'Push setup failed.' };
     sendWs('test_push');
-    return { ok:true };
+    return { ok:true, waitingForServer:true };
   }
+
+  window.wavelengthResetPushSubscription = resetPushSubscription;
 
   async function requestNotificationPermission() {
     if (!('Notification' in window)) return false;
@@ -647,6 +695,15 @@
 
   function handleServerMessage(msg) {
     switch (msg.type) {
+      case 'push_test_result':
+        if (msg.ok) {
+          console.log('Push test accepted by server.');
+        } else {
+          console.warn('Push test failed:', msg.error || 'Unknown error');
+          alert('Push test failed: ' + (msg.error || 'Unknown error'));
+        }
+        break;
+
       case 'online_count':
         onlineCount.textContent = `${msg.count} ${msg.count === 1 ? 'person' : 'people'} online now`;
         break;

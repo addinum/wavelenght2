@@ -13,12 +13,17 @@ const db = require('./db');
 const PORT = process.env.PORT || 3000;
 const PUBLIC_DIR = path.join(__dirname, 'public');
 
-let VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || '';
-if (!/^[A-Za-z0-9_-]{43}$/.test(VAPID_PRIVATE_KEY)) {
-  VAPID_PRIVATE_KEY = crypto.randomBytes(32).toString('base64url');
-  console.warn('VAPID_PRIVATE_KEY is not configured. Push subscriptions will reset after restart. Set a persistent VAPID_PRIVATE_KEY in Render for production.');
+const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || '';
+let VAPID_PUBLIC_KEY = '';
+if (/^[A-Za-z0-9_-]{43}$/.test(VAPID_PRIVATE_KEY)) {
+  try {
+    VAPID_PUBLIC_KEY = vapidPublicKey(VAPID_PRIVATE_KEY);
+  } catch (err) {
+    console.error('Invalid VAPID_PRIVATE_KEY:', err.message);
+  }
+} else {
+  console.warn('VAPID_PRIVATE_KEY is missing/invalid. Push notifications are disabled until a stable 32-byte base64url VAPID private key is configured in Render.');
 }
-const VAPID_PUBLIC_KEY = vapidPublicKey(VAPID_PRIVATE_KEY);
 
 async function pushInboxNotification(toId, fromId, payload) {
   // Do not notify while the recipient is actively viewing this exact thread.
@@ -69,13 +74,21 @@ const MIME = {
 const server = http.createServer((req, res) => {
   if (req.method === 'GET' && new URL(req.url, `http://${req.headers.host || 'localhost'}`).pathname === '/api/push/status') {
     res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-    return res.end(JSON.stringify({ configured: !!process.env.VAPID_PRIVATE_KEY, publicKey: VAPID_PUBLIC_KEY }));
+    return res.end(JSON.stringify({
+      configured: !!VAPID_PRIVATE_KEY && !!VAPID_PUBLIC_KEY,
+      publicKey: VAPID_PUBLIC_KEY,
+      pushReady: !!VAPID_PRIVATE_KEY && !!VAPID_PUBLIC_KEY
+    }));
   }
   if (req.method === 'GET' && new URL(req.url, `http://${req.headers.host || 'localhost'}`).pathname === '/api/push/public-key') {
     res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
     return res.end(JSON.stringify({ publicKey: VAPID_PUBLIC_KEY }));
   }
   if (req.method === 'POST' && new URL(req.url, `http://${req.headers.host || 'localhost'}`).pathname === '/api/push/subscribe') {
+    if (!VAPID_PRIVATE_KEY || !VAPID_PUBLIC_KEY) {
+      res.writeHead(503, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ ok: false, error: 'Push notifications are not configured on the server. Add VAPID_PRIVATE_KEY in Render.' }));
+    }
     let body = '';
     req.on('data', chunk => { body += chunk; if (body.length > 50000) req.destroy(); });
     req.on('end', async () => {

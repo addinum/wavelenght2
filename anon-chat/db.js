@@ -371,7 +371,7 @@ async function markThreadRead(fromId, toId) {
 
 async function markMessageDelivered(messageId) {
   if (!isReady() || !messageId) return null;
-  try { return await Message.findByIdAndUpdate(messageId, { $set: { delivered: true, deliveredAt: new Date() } }, { new: true }).lean(); }
+  try { return await Message.findByIdAndUpdate(messageId, { $set: { delivered: true, deliveredAt: new Date() } }, { returnDocument: 'after' }).lean(); }
   catch (err) { console.error('markMessageDelivered failed:', err.message); return null; }
 }
 
@@ -383,13 +383,13 @@ async function markMessagesRead(fromId, toId) {
 
 async function editMessage(messageId, ownerId, text) {
   if (!isReady()) return null;
-  try { return await Message.findOneAndUpdate({ _id: messageId, fromId: ownerId, msgType: 'text', deleted: { $ne: true } }, { $set: { text, editedAt: new Date() } }, { new: true }).lean(); }
+  try { return await Message.findOneAndUpdate({ _id: messageId, fromId: ownerId, msgType: 'text', deleted: { $ne: true } }, { $set: { text, editedAt: new Date() } }, { returnDocument: 'after' }).lean(); }
   catch (err) { console.error('editMessage failed:', err.message); return null; }
 }
 
 async function deleteMessage(messageId, ownerId) {
   if (!isReady()) return null;
-  try { return await Message.findOneAndUpdate({ _id: messageId, fromId: ownerId }, { $set: { deleted: true, text: '', gifData: null, audioData: null, editedAt: null } }, { new: true }).lean(); }
+  try { return await Message.findOneAndUpdate({ _id: messageId, fromId: ownerId }, { $set: { deleted: true, text: '', gifData: null, audioData: null, editedAt: null } }, { returnDocument: 'after' }).lean(); }
   catch (err) { console.error('deleteMessage failed:', err.message); return null; }
 }
 
