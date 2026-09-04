@@ -529,14 +529,14 @@
   }
 
   async function ensurePushSubscription() {
-    if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) return;
+    if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) return { ok:false, error:'This browser does not support Web Push.' };
     try {
       pushRegistration = pushRegistration || await navigator.serviceWorker.register('/sw.js');
-      if (Notification.permission !== 'granted') return;
+      if (Notification.permission !== 'granted') return { ok:false, error:'Notification permission is not granted.' };
       const keyRes = await fetch('/api/push/public-key', { cache: 'no-store' });
-      if (!keyRes.ok) return;
+      if (!keyRes.ok) return { ok:false, error:'Server did not provide a VAPID public key.' };
       const { publicKey } = await keyRes.json();
-      if (!publicKey) return;
+      if (!publicKey) return { ok:false, error:'VAPID public key is empty.' };
       let subscription = await pushRegistration.pushManager.getSubscription();
       if (!subscription) {
         subscription = await pushRegistration.pushManager.subscribe({
@@ -544,14 +544,25 @@
           applicationServerKey: urlBase64ToUint8Array(publicKey)
         });
       }
-      await fetch('/api/push/subscribe', {
+      const saveRes = await fetch('/api/push/subscribe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ deviceId: myDeviceId, subscription })
+        body: JSON.stringify({ deviceId: myDeviceId, subscription: subscription.toJSON() })
       });
+      const saveData = await saveRes.json().catch(() => ({}));
+      if (!saveRes.ok || !saveData.ok) return { ok:false, error:saveData.error || 'Server could not save the push subscription.' };
+      return { ok:true };
     } catch (err) {
       console.warn('Push notifications unavailable:', err);
+      return { ok:false, error:err.message || 'Push setup failed.' };
     }
+  }
+
+  async function testPhonePush() {
+    const result = await ensurePushSubscription();
+    if (!result?.ok) return result || { ok:false, error:'Push setup failed.' };
+    sendWs('test_push');
+    return { ok:true };
   }
 
   async function requestNotificationPermission() {
@@ -573,6 +584,7 @@
   }
 
   window.wavelengthRequestNotificationPermission = requestNotificationPermission;
+  window.wavelengthTestPhonePush = testPhonePush;
 
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/sw.js').then(reg => {

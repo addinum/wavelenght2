@@ -14,6 +14,7 @@ function vapidPublicKey(privateKeyB64) {
 }
 
 function sendPush(subscription, payload, vapidPrivateKey) {
+  if (!vapidPrivateKey) throw new Error('VAPID_PRIVATE_KEY is missing');
   const publicKey = vapidPublicKey(vapidPrivateKey);
   webpush.setVapidDetails(
     'mailto:wavelength-notifications@example.com',
@@ -25,7 +26,7 @@ function sendPush(subscription, payload, vapidPrivateKey) {
     subscription,
     JSON.stringify(payload),
     { TTL: 86400, urgency: 'high' }
-  ).then(() => ({ statusCode: 201 }));
+  );
 }
 
 module.exports = { sendPush, vapidPublicKey };

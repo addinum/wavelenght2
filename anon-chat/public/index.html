@@ -335,10 +335,28 @@
 </script>
 <script>
 document.addEventListener('DOMContentLoaded',()=>{
+ const host=document.querySelector('#landingScreen')||document.querySelector('main')||document.body;
+ const wrap=document.createElement('div'); wrap.style.cssText='display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:12px;';
  const b=document.createElement('button'); b.id='enablePushBtn'; b.type='button'; b.textContent='🔔 Enable Phone Notifications';
- b.style.cssText='margin-top:12px;padding:10px 14px;border-radius:12px;border:1px solid rgba(255,255,255,.16);background:#151515;color:#fff;font-weight:600;cursor:pointer;';
- b.onclick=()=>{ if(typeof window.wavelengthRequestNotificationPermission==='function'){ window.wavelengthRequestNotificationPermission(); } else if(window.Notification){ Notification.requestPermission(); } };
- const host=document.querySelector('#landingScreen')||document.querySelector('main')||document.body; host.appendChild(b);
+ b.style.cssText='padding:10px 14px;border-radius:12px;border:1px solid rgba(255,255,255,.16);background:#151515;color:#fff;font-weight:600;cursor:pointer;';
+ const t=document.createElement('button'); t.id='testPushBtn'; t.type='button'; t.textContent='🧪 Test Notification';
+ t.style.cssText=b.style.cssText;
+ const status=document.createElement('div'); status.id='pushStatus'; status.style.cssText='width:100%;font-size:12px;opacity:.75;text-align:center;margin-top:4px;';
+ b.onclick=async()=>{
+   if(typeof window.wavelengthRequestNotificationPermission==='function'){
+     const ok=await window.wavelengthRequestNotificationPermission();
+     status.textContent=ok?'✅ Notifications enabled on this browser.':'❌ Notification permission was not granted.';
+   }
+ };
+ t.onclick=async()=>{
+   if(typeof window.wavelengthTestPhonePush==='function'){
+     status.textContent='Sending test notification…';
+     const r=await window.wavelengthTestPhonePush();
+     if(!r?.ok) status.textContent='❌ '+(r?.error||'Push setup failed.');
+     else status.textContent='✅ Test sent. Check your phone notification tray.';
+   }
+ };
+ wrap.append(b,t,status); host.appendChild(wrap);
 });
 </script>
 </body>

@@ -24,18 +24,22 @@ async function pushInboxNotification(toId, fromId, payload) {
   // Do not notify while the recipient is actively viewing this exact thread.
   if (activeThreads.get(toId) === fromId) return;
   const subscriptions = await db.getPushSubscriptions(toId);
-  if (!subscriptions.length) return;
+  if (!subscriptions.length) {
+    console.log('Push skipped: no subscription for', toId);
+    return;
+  }
   const notification = {
     senderName: await db.getContactName(toId, fromId),
-    message: payload.preview,
+    message: String(payload.preview || 'New message').slice(0, 180),
     chatId: fromId,
   };
   await Promise.all(subscriptions.map(async row => {
     try {
       const result = await sendPush(row.subscription, notification, VAPID_PRIVATE_KEY);
-      if ([404, 410].includes(result.statusCode)) await db.removePushSubscription(row.endpoint);
+      console.log('Push sent:', result.statusCode, 'to', toId);
     } catch (err) {
-      console.error('Push notification failed:', err.message);
+      console.error('Push notification failed:', err.statusCode || '', err.body || '', err.message);
+      if ([404, 410].includes(err.statusCode)) await db.removePushSubscription(row.endpoint);
     }
   }));
 }
@@ -444,6 +448,32 @@ wss.on('connection', (ws) => {
         break;
       }
 
+      case 'test_push': {
+        const myId = wsDeviceId.get(ws);
+        if (!myId) { send(ws, 'push_test_result', { ok: false, error: 'Device is not identified yet.' }); break; }
+        const subscriptions = await db.getPushSubscriptions(myId);
+        if (!subscriptions.length) {
+          send(ws, 'push_test_result', { ok: false, error: 'No push subscription saved for this phone. Enable notifications first.' });
+          break;
+        }
+        let sent = 0;
+        for (const row of subscriptions) {
+          try {
+            const result = await sendPush(row.subscription, {
+              senderName: 'Wavelength',
+              message: 'Test notification — push notifications are working! 🔔',
+              chatId: ''
+            }, VAPID_PRIVATE_KEY);
+            if (result.statusCode >= 200 && result.statusCode < 300) sent++;
+          } catch (err) {
+            console.error('Test push failed:', err.statusCode || '', err.body || '', err.message);
+            if ([404, 410].includes(err.statusCode)) await db.removePushSubscription(row.endpoint);
+          }
+        }
+        send(ws, 'push_test_result', sent ? { ok: true } : { ok: false, error: 'Push service rejected the subscription. Check Render logs.' });
+        break;
+      }
+
       case 'send_inbox_message': {
         const myId = wsDeviceId.get(ws);
         const toId = String(msg.toDeviceId || '');
@@ -590,6 +620,7 @@ wss.on('connection', (ws) => {
           send(ws, 'inbox_message', payload);
           const recipientWs = deviceOnline.get(toId);
           if (recipientWs) { if (saved) await db.markMessageDelivered(payload.id); payload.delivered = true; send(recipientWs, 'inbox_message', payload); send(ws, 'message_status', { id: payload.id, status: 'delivered' }); }
+          await pushInboxNotification(toId, myId, { preview: notificationPreview('gif', {}) });
         });
         break;
       }

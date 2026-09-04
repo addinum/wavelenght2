@@ -9,8 +9,6 @@ self.addEventListener('push', event => {
   const chatId = data.chatId || '';
   event.waitUntil(self.registration.showNotification(sender, {
     body,
-    icon: '/avatars/boy1.jpg',
-    badge: '/avatars/boy1.jpg',
     tag: 'wavelength-' + chatId,
     renotify: true,
     data: { chatId }
