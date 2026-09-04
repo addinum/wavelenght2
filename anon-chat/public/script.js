@@ -93,6 +93,11 @@
   const callBtn = document.getElementById('callBtn');
   const fileBtn = document.getElementById('fileBtn');
   const fileInput = document.getElementById('fileInput');
+  const fileViewerModal = document.getElementById('fileViewerModal');
+  const fileViewerClose = document.getElementById('fileViewerClose');
+  const fileViewerTitle = document.getElementById('fileViewerTitle');
+  const fileViewerMeta = document.getElementById('fileViewerMeta');
+  const fileViewerBody = document.getElementById('fileViewerBody');
   const incomingCallModal = document.getElementById('incomingCallModal');
   const incomingCallAvatar = document.getElementById('incomingCallAvatar');
   const incomingCallName = document.getElementById('incomingCallName');
@@ -120,6 +125,7 @@
   let reconnectAttempts = 0;
   let userInitiatedClose = false;
   let currentThreadContactId = null;
+  let pendingNotificationChatId = null;
   let threadOldestId = null;
   let threadHasMore = false;
   let loadingOlderThread = false;
@@ -452,6 +458,7 @@
     if (!screens.thread.classList.contains('hidden')) {
       // Thread -> Inbox, no confirmation needed.
       if (mediaRecorder && mediaRecorder.state === 'recording') stopRecording(false);
+      sendWs('close_thread');
       currentThreadContactId = null;
       showScreen('inbox');
       sendWs('get_contacts');
@@ -505,17 +512,73 @@
     }
   }
 
-  function notifyInboxMessage(name) {
+  function notifyInboxMessage(name, preview = 'New message') {
+    // OS-level notifications are delivered by the service worker/Web Push.
+    // Keep this local helper for the in-app sound only, avoiding duplicate notifications.
     playBeep();
-    if ('Notification' in window && Notification.permission === 'granted' && document.hidden) {
-      new Notification('Wavelength', { body: `New message from ${name}` });
+  }
+
+  let pushRegistration = null;
+  
+
+  function urlBase64ToUint8Array(base64String) {
+    const padding = '='.repeat((4 - base64String.length % 4) % 4);
+    const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+    const rawData = atob(base64);
+    return Uint8Array.from([...rawData].map(ch => ch.charCodeAt(0)));
+  }
+
+  async function ensurePushSubscription() {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) return;
+    try {
+      pushRegistration = pushRegistration || await navigator.serviceWorker.register('/sw.js');
+      if (Notification.permission !== 'granted') return;
+      const keyRes = await fetch('/api/push/public-key', { cache: 'no-store' });
+      if (!keyRes.ok) return;
+      const { publicKey } = await keyRes.json();
+      if (!publicKey) return;
+      let subscription = await pushRegistration.pushManager.getSubscription();
+      if (!subscription) {
+        subscription = await pushRegistration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(publicKey)
+        });
+      }
+      await fetch('/api/push/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deviceId: myDeviceId, subscription })
+      });
+    } catch (err) {
+      console.warn('Push notifications unavailable:', err);
     }
   }
 
   function requestNotificationPermission() {
-    if ('Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission().catch(() => {});
+    if (!('Notification' in window)) return;
+    if (Notification.permission === 'granted') {
+      ensurePushSubscription();
+      return;
     }
+    if (Notification.permission === 'default') {
+      Notification.requestPermission().then(permission => {
+        if (permission === 'granted') ensurePushSubscription();
+      }).catch(() => {});
+    }
+  }
+
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').then(reg => {
+      pushRegistration = reg;
+      if ('Notification' in window && Notification.permission === 'granted') ensurePushSubscription();
+    }).catch(() => {});
+    navigator.serviceWorker.addEventListener('message', event => {
+      if (event.data?.type === 'OPEN_CHAT' && event.data.chatId) {
+        const c = latestContacts.find(x => x.contactId === event.data.chatId);
+        if (c) openThread(c.contactId, c.name, c.avatar);
+        else { pendingNotificationChatId = event.data.chatId; sendWs('get_contacts'); }
+      }
+    });
   }
 
   // ---------- WebSocket (single persistent connection for the whole app) ----------
@@ -665,12 +728,17 @@
         latestContacts.forEach(c => presenceById.set(c.contactId, { online: !!c.online, lastSeenAt: c.lastSeenAt }));
         renderInboxList();
         updateInboxBadge();
+        if (pendingNotificationChatId) {
+          const c = latestContacts.find(x => x.contactId === pendingNotificationChatId);
+          if (c) { pendingNotificationChatId = null; openThread(c.contactId, c.name, c.avatar); }
+        }
         break;
 
       case 'contact_deleted':
         if (msg.ok) {
           latestContacts = latestContacts.filter((c) => c.contactId !== msg.contactId);
           if (currentThreadContactId === msg.contactId) {
+            sendWs('close_thread');
             currentThreadContactId = null;
             showScreen('inbox');
           }
@@ -733,7 +801,12 @@
           }
         } else if (isForMe) {
           const contact = latestContacts.find((c) => c.contactId === otherPartyId);
-          notifyInboxMessage(contact ? contact.name : 'a contact');
+          const contactName = contact ? contact.name : 'a contact';
+          const preview = msg.msgType === 'text' ? (msg.text || 'New message') :
+            msg.msgType === 'gif' ? 'Sent you a GIF' :
+            msg.msgType === 'voice' ? 'Sent you a voice message' :
+            msg.msgType === 'file' ? `Sent you a file: ${msg.fileName || 'File'}` : 'New message';
+          notifyInboxMessage(contactName, preview);
         }
         sendWs('get_contacts'); // refresh unread counts / previews
         break;
@@ -889,8 +962,8 @@
     if (threadRenderTarget === threadLog) threadLog.scrollTop = threadLog.scrollHeight;
   }
 
-  // Generic file/document bubble. Any browser-readable file type can be selected;
-  // images get an inline preview, while PDFs and other formats get a clean file card.
+  // File bubble: files never get a download link. Clicking Open launches the
+  // in-app viewer for browser-previewable formats (image/video/audio/PDF/text).
   function addFileBubble(fileMeta, who) {
     const data = String(fileMeta?.fileData || '');
     if (!/^data:[^;,]+;base64,[A-Za-z0-9+/=]+$/i.test(data)) return;
@@ -910,6 +983,9 @@
     const name = String(fileMeta.fileName || 'File').slice(0, 180);
     const size = formatFileSize(fileMeta.fileSize);
     const isImage = mime.startsWith('image/');
+    const isVideo = mime.startsWith('video/');
+    const isAudio = mime.startsWith('audio/');
+    const isPdf = mime === 'application/pdf';
 
     if (isImage) {
       const img = document.createElement('img');
@@ -918,15 +994,20 @@
       img.alt = name;
       img.loading = 'lazy';
       img.decoding = 'async';
+      img.addEventListener('click', () => openInAppFileViewer(fileMeta));
+      img.title = 'Open in viewer';
       bubble.appendChild(img);
     }
 
-    const card = document.createElement('div');
-    card.className = 'wa-file-card';
+    const card = document.createElement('button');
+    card.type = 'button';
+    card.className = 'wa-file-card wa-file-card--button';
+    card.setAttribute('aria-label', `Open ${name} in viewer`);
+    card.addEventListener('click', () => openInAppFileViewer(fileMeta));
 
     const icon = document.createElement('div');
     icon.className = 'wa-file-icon';
-    icon.textContent = mime === 'application/pdf' ? '📄' : isImage ? '🖼️' : '📎';
+    icon.textContent = isPdf ? '📄' : isImage ? '🖼️' : isVideo ? '🎬' : isAudio ? '🎵' : '📎';
 
     const info = document.createElement('div');
     info.className = 'wa-file-info';
@@ -935,17 +1016,14 @@
     title.textContent = name;
     const details = document.createElement('div');
     details.className = 'wa-file-meta';
-    details.textContent = `${mime === 'application/pdf' ? 'PDF' : (mime.split('/')[1] || 'FILE').toUpperCase()} • ${size}`;
+    details.textContent = `${isPdf ? 'PDF' : isImage ? 'IMAGE' : isVideo ? 'VIDEO' : isAudio ? 'AUDIO' : (mime.split('/')[1] || 'FILE').toUpperCase()} • ${size} • Tap to view`;
     info.appendChild(title);
     info.appendChild(details);
 
-    const open = document.createElement('a');
+    const open = document.createElement('span');
     open.className = 'wa-file-open';
-    open.href = data;
-    open.target = '_blank';
-    open.rel = 'noopener noreferrer';
-    open.download = name;
-    open.textContent = 'Open';
+    open.textContent = 'View';
+    open.setAttribute('aria-hidden', 'true');
 
     card.appendChild(icon);
     card.appendChild(info);
@@ -960,6 +1038,103 @@
     row.appendChild(bubble);
     threadRenderTarget.appendChild(row);
     if (threadRenderTarget === threadLog) threadLog.scrollTop = threadLog.scrollHeight;
+  }
+
+  function base64DataUrlToBlob(dataUrl) {
+    const comma = dataUrl.indexOf(',');
+    if (comma < 0) throw new Error('Invalid file data');
+    const header = dataUrl.slice(0, comma);
+    const base64 = dataUrl.slice(comma + 1);
+    const mime = (header.match(/^data:([^;]+)/i) || [])[1] || 'application/octet-stream';
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return new Blob([bytes], { type: mime });
+  }
+
+  function openInAppFileViewer(fileMeta) {
+    const data = String(fileMeta?.fileData || '');
+    if (!/^data:[^;,]+;base64,[A-Za-z0-9+/=]+$/i.test(data)) return;
+
+    const mime = String(fileMeta.fileMimeType || 'application/octet-stream').toLowerCase();
+    const name = String(fileMeta.fileName || 'File').slice(0, 180);
+    fileViewerTitle.textContent = name;
+    fileViewerMeta.textContent = `${mime.toUpperCase()} • ${formatFileSize(fileMeta.fileSize)}`;
+    fileViewerBody.replaceChildren();
+
+    let el = null;
+    let objectUrl = null;
+    try {
+      const blob = base64DataUrlToBlob(data);
+      objectUrl = URL.createObjectURL(blob);
+
+      if (mime.startsWith('image/')) {
+        el = document.createElement('img');
+        el.className = 'file-viewer-media file-viewer-image';
+        el.src = objectUrl;
+        el.alt = name;
+      } else if (mime.startsWith('video/')) {
+        el = document.createElement('video');
+        el.className = 'file-viewer-media';
+        el.src = objectUrl;
+        el.controls = true;
+        el.playsInline = true;
+        el.preload = 'metadata';
+        el.setAttribute('controlsList', 'nodownload noremoteplayback');
+        el.disablePictureInPicture = true;
+      } else if (mime.startsWith('audio/')) {
+        el = document.createElement('audio');
+        el.className = 'file-viewer-audio';
+        el.src = objectUrl;
+        el.controls = true;
+        el.preload = 'metadata';
+        el.setAttribute('controlsList', 'nodownload noplaybackrate');
+      } else if (mime === 'application/pdf') {
+        el = document.createElement('iframe');
+        el.className = 'file-viewer-pdf';
+        el.src = objectUrl + '#toolbar=0&navpanes=0&scrollbar=1';
+        el.title = `PDF preview: ${name}`;
+      } else if (mime.startsWith('text/') || /json|xml|csv|javascript/.test(mime)) {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const pre = document.createElement('pre');
+          pre.className = 'file-viewer-text';
+          pre.textContent = String(reader.result || '');
+          fileViewerBody.replaceChildren(pre);
+        };
+        reader.readAsText(blob);
+      } else {
+        const unsupported = document.createElement('div');
+        unsupported.className = 'file-viewer-unsupported';
+        unsupported.innerHTML = '<div class="file-viewer-unsupported__icon">📎</div><strong>Preview not supported</strong><p>This file type cannot be safely rendered inside a web browser.</p><small>No download button is provided.</small>';
+        fileViewerBody.appendChild(unsupported);
+      }
+
+      if (el) fileViewerBody.appendChild(el);
+      fileViewerModal.classList.remove('hidden');
+      document.body.classList.add('file-viewer-open');
+
+      const cleanup = () => {
+        if (objectUrl) URL.revokeObjectURL(objectUrl);
+        objectUrl = null;
+      };
+      fileViewerClose._viewerCleanup = cleanup;
+    } catch (err) {
+      console.error('File viewer error:', err);
+      const error = document.createElement('div');
+      error.className = 'file-viewer-unsupported';
+      error.textContent = 'This file could not be previewed.';
+      fileViewerBody.appendChild(error);
+      fileViewerModal.classList.remove('hidden');
+    }
+  }
+
+  function closeInAppFileViewer() {
+    if (fileViewerClose?._viewerCleanup) fileViewerClose._viewerCleanup();
+    fileViewerClose._viewerCleanup = null;
+    fileViewerBody.replaceChildren();
+    fileViewerModal.classList.add('hidden');
+    document.body.classList.remove('file-viewer-open');
   }
 
   function formatFileSize(bytes) {
@@ -1969,6 +2144,17 @@
     reader.onerror = () => addSystemBubble('Could not read that file.');
     reader.readAsDataURL(file);
   }
+
+  fileViewerClose?.addEventListener('click', closeInAppFileViewer);
+  fileViewerModal?.addEventListener('click', (e) => { if (e.target === fileViewerModal) closeInAppFileViewer(); });
+
+  // Discourage casual saving/copying from the viewer. This cannot prevent screenshots.
+  fileViewerModal?.addEventListener('contextmenu', (e) => e.preventDefault());
+  document.addEventListener('keydown', (e) => {
+    if (!fileViewerModal || fileViewerModal.classList.contains('hidden')) return;
+    if (e.key === 'Escape') closeInAppFileViewer();
+    if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === 's' || e.key.toLowerCase() === 'u')) e.preventDefault();
+  });
 
   // ---------- GIPHY GIF picker ----------
   function openGifPicker() {

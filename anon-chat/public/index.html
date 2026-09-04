@@ -242,6 +242,20 @@
   <button id="toastFindBtn" class="btn-chip">Find another</button>
 </div>
 
+<!-- ===== IN-APP SECURE FILE VIEWER ===== -->
+<div id="fileViewerModal" class="file-viewer-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="fileViewerTitle">
+  <div class="file-viewer-card">
+    <header class="file-viewer-header">
+      <div class="file-viewer-title-wrap">
+        <strong id="fileViewerTitle">File preview</strong>
+        <span id="fileViewerMeta"></span>
+      </div>
+      <button type="button" id="fileViewerClose" class="modal-close" aria-label="Close file viewer">✕</button>
+    </header>
+    <div id="fileViewerBody" class="file-viewer-body"></div>
+  </div>
+</div>
+
 <!-- ===== INBOX CALL UI ===== -->
 <div id="incomingCallModal" class="call-overlay hidden">
   <div class="call-card">

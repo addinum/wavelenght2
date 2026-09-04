@@ -5,11 +5,51 @@
 const http = require('http');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
+const { sendPush, vapidPublicKey } = require('./push');
 const WebSocket = require('ws');
 const db = require('./db');
 
 const PORT = process.env.PORT || 3000;
 const PUBLIC_DIR = path.join(__dirname, 'public');
+
+let VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || '';
+if (!/^[A-Za-z0-9_-]{43}$/.test(VAPID_PRIVATE_KEY)) {
+  VAPID_PRIVATE_KEY = crypto.randomBytes(32).toString('base64url');
+  console.warn('VAPID_PRIVATE_KEY is not configured. Push subscriptions will reset after restart. Set a persistent VAPID_PRIVATE_KEY in Render for production.');
+}
+const VAPID_PUBLIC_KEY = vapidPublicKey(VAPID_PRIVATE_KEY);
+
+async function pushInboxNotification(toId, fromId, payload) {
+  // Do not notify while the recipient is actively viewing this exact thread.
+  if (activeThreads.get(toId) === fromId) return;
+  const subscriptions = await db.getPushSubscriptions(toId);
+  if (!subscriptions.length) return;
+  const notification = {
+    senderName: await db.getContactName(toId, fromId),
+    message: payload.preview,
+    chatId: fromId,
+  };
+  await Promise.all(subscriptions.map(async row => {
+    try {
+      const result = await sendPush(row.subscription, notification, VAPID_PRIVATE_KEY);
+      if ([404, 410].includes(result.statusCode)) await db.removePushSubscription(row.endpoint);
+    } catch (err) {
+      console.error('Push notification failed:', err.message);
+    }
+  }));
+}
+
+function notificationPreview(msgType, msg) {
+  if (msgType === 'text') return String(msg.text || '').slice(0, 140);
+  if (msgType === 'gif') return 'Sent you a GIF';
+  if (msgType === 'voice') return 'Sent you a voice message';
+  if (msgType === 'file') {
+    const name = String(msg.fileName || '').slice(0, 90);
+    return name ? `Sent you a file: ${name}` : 'Sent you a file';
+  }
+  return 'Sent you a message';
+}
 
 // ---- Simple static file server for the frontend ----
 const MIME = {
@@ -23,6 +63,29 @@ const MIME = {
 };
 
 const server = http.createServer((req, res) => {
+  if (req.method === 'GET' && new URL(req.url, `http://${req.headers.host || 'localhost'}`).pathname === '/api/push/public-key') {
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+    return res.end(JSON.stringify({ publicKey: VAPID_PUBLIC_KEY }));
+  }
+  if (req.method === 'POST' && new URL(req.url, `http://${req.headers.host || 'localhost'}`).pathname === '/api/push/subscribe') {
+    let body = '';
+    req.on('data', chunk => { body += chunk; if (body.length > 50000) req.destroy(); });
+    req.on('end', async () => {
+      try {
+        const data = JSON.parse(body || '{}');
+        const deviceId = String(data.deviceId || '').slice(0, 128);
+        const subscription = data.subscription || data;
+        if (!deviceId || !subscription.endpoint || !subscription.keys?.p256dh || !subscription.keys?.auth) throw new Error('Invalid subscription');
+        const ok = await db.savePushSubscription(deviceId, subscription);
+        res.writeHead(ok ? 201 : 503, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok }));
+      } catch (err) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: 'Invalid push subscription' }));
+      }
+    });
+    return;
+  }
   // Strip query strings (e.g. style.css?v=...) before resolving static files.
   // This keeps cache-busting URLs from causing a 404 and taking down the UI styling.
   const requestPath = new URL(req.url, `http://${req.headers.host || 'localhost'}`).pathname;
@@ -55,6 +118,7 @@ const avatars = new Map();   // ws -> chosen avatar id (e.g. 'a1'..'a10')
 const codeWaiting = new Map(); // friend code -> ws waiting to be joined
 const deviceOnline = new Map(); // deviceId -> ws (for inbox delivery)
 const wsDeviceId = new Map();   // ws -> deviceId (reverse lookup)
+const activeThreads = new Map(); // deviceId -> contactId currently open
 
 function send(ws, type, payload = {}) {
   if (ws.readyState === WebSocket.OPEN) {
@@ -340,6 +404,7 @@ wss.on('connection', (ws) => {
         const myId = wsDeviceId.get(ws);
         const theirId = String(msg.contactId || '');
         if (!myId || !theirId) break;
+        activeThreads.set(myId, theirId);
         db.markThreadRead(theirId, myId).then(async () => {
           const page = await db.getThreadPage(myId, theirId, 30);
           send(ws, 'thread_history', { contactId: theirId, ...page });
@@ -347,6 +412,12 @@ wss.on('connection', (ws) => {
           const theirWs = deviceOnline.get(theirId);
           if (theirWs) send(theirWs, 'read_receipt', { byId: myId, contactId: myId });
         });
+        break;
+      }
+
+      case 'close_thread': {
+        const myId = wsDeviceId.get(ws);
+        if (myId) activeThreads.delete(myId);
         break;
       }
 
@@ -394,6 +465,7 @@ wss.on('connection', (ws) => {
             send(recipientWs, 'inbox_message', payload);
             send(ws, 'message_status', { id, status: 'delivered' });
           }
+          await pushInboxNotification(toId, myId, { preview: notificationPreview('text', { text }) });
         });
         break;
       }
@@ -566,6 +638,7 @@ wss.on('connection', (ws) => {
             send(recipientWs, 'inbox_message', payload);
             send(ws, 'message_status', { id: payload.id, status: 'delivered' });
           }
+          await pushInboxNotification(toId, myId, { preview: notificationPreview('file', { fileName }) });
         });
         break;
       }
@@ -600,6 +673,7 @@ wss.on('connection', (ws) => {
           send(ws, 'inbox_message', payload);
           const recipientWs = deviceOnline.get(toId);
           if (recipientWs) { if (saved) await db.markMessageDelivered(payload.id); payload.delivered = true; send(recipientWs, 'inbox_message', payload); send(ws, 'message_status', { id: payload.id, status: 'delivered' }); }
+          await pushInboxNotification(toId, myId, { preview: notificationPreview('voice', {}) });
         });
         break;
       }
@@ -613,6 +687,7 @@ wss.on('connection', (ws) => {
     names.delete(ws);
     avatars.delete(ws);
     const deviceId = wsDeviceId.get(ws);
+    if (deviceId) activeThreads.delete(deviceId);
     if (deviceId && deviceOnline.get(deviceId) === ws) {
       deviceOnline.delete(deviceId);
       db.touchContactLastSeen(deviceId).catch(() => {});

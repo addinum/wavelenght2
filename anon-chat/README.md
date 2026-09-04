@@ -54,3 +54,23 @@ Then open http://localhost:3000
 ## Deploying
 Same as before — push to GitHub, Render auto-deploys. `MONGODB_URI` still
 needed for accounts/inbox/voice notes/avatars-in-contacts.
+
+## Phone / browser push notifications
+
+Wavelength now supports Web Push notifications for inbox messages. When a contact sends a message while you are not actively viewing that conversation, the notification shows:
+
+- **Title:** contact name
+- **Body:** the message text (or a short type label for GIF, voice, and files)
+- Tapping the notification opens Wavelength and the contact conversation.
+
+### Render setup
+
+1. Deploy this project over **HTTPS** (Render provides HTTPS).
+2. Create one persistent VAPID private key and add it to Render as:
+   `VAPID_PRIVATE_KEY`
+3. Generate a key with Node.js:
+   `node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"`
+4. Redeploy.
+5. Open Wavelength on the phone and press **Find a stranger** once, then allow notifications when the browser asks.
+
+The private VAPID key must stay in Render environment variables and must not be committed to GitHub.

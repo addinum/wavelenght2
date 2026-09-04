@@ -30,6 +30,10 @@ const messageSchema = new mongoose.Schema({
   msgType: { type: String, enum: ['text', 'voice', 'gif', 'file'], default: 'text' },
   text: { type: String, default: '' },
   gifData: { type: String, default: null },
+  fileData: { type: String, default: null },
+  fileName: { type: String, default: null },
+  fileMimeType: { type: String, default: 'application/octet-stream' },
+  fileSize: { type: Number, default: 0 },
   audioData: { type: String, default: null }, // base64-encoded audio, voice notes only
   duration: { type: Number, default: null },  // seconds, voice notes only
   createdAt: { type: Date, default: Date.now },
@@ -54,6 +58,15 @@ const messageSchema = new mongoose.Schema({
 const Account = mongoose.model('Account', accountSchema);
 const Contact = mongoose.model('Contact', contactSchema);
 const Message = mongoose.model('Message', messageSchema);
+
+const pushSubscriptionSchema = new mongoose.Schema({
+  deviceId: { type: String, required: true, index: true },
+  endpoint: { type: String, required: true, unique: true },
+  subscription: { type: Object, required: true },
+  createdAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date, default: Date.now },
+});
+const PushSubscription = mongoose.model('PushSubscription', pushSubscriptionSchema);
 
 function isReady() {
   return mongoose.connection.readyState === 1; // 1 = connected
@@ -201,6 +214,39 @@ async function deleteContact(ownerId, contactId) {
     console.error('deleteContact failed:', err.message);
     return false;
   }
+}
+
+
+async function getContactName(ownerId, contactId) {
+  if (!isReady() || !ownerId || !contactId) return 'Contact';
+  try {
+    const c = await Contact.findOne({ ownerId, contactId }).lean();
+    return c?.contactName || 'Contact';
+  } catch (err) { return 'Contact'; }
+}
+
+async function savePushSubscription(deviceId, subscription) {
+  if (!isReady() || !deviceId || !subscription?.endpoint || !subscription?.keys?.p256dh || !subscription?.keys?.auth) return false;
+  try {
+    await PushSubscription.findOneAndUpdate(
+      { endpoint: subscription.endpoint },
+      { deviceId, subscription, updatedAt: new Date() },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+    return true;
+  } catch (err) { console.error('savePushSubscription failed:', err.message); return false; }
+}
+
+async function removePushSubscription(endpoint) {
+  if (!isReady() || !endpoint) return false;
+  try { await PushSubscription.deleteOne({ endpoint }); return true; }
+  catch (err) { return false; }
+}
+
+async function getPushSubscriptions(deviceId) {
+  if (!isReady() || !deviceId) return [];
+  try { return await PushSubscription.find({ deviceId }).lean(); }
+  catch (err) { return []; }
 }
 
 async function getContacts(ownerId) {
@@ -377,6 +423,10 @@ module.exports = {
   updateAccount,
   saveContactPair,
   getContacts,
+  getContactName,
+  savePushSubscription,
+  removePushSubscription,
+  getPushSubscriptions,
   deleteContact,
   saveMessage,
   saveVoiceMessage,
