@@ -44,10 +44,11 @@ function encryptPayload(subscription, json) {
   const sharedSecret = ecdh.computeSecret(clientPublic);
 
   const salt = crypto.randomBytes(16);
-  const prk = hkdf(authSecret, sharedSecret, Buffer.from('WebPush: info\0'), 32);
-  // RFC8291: auth -> PRK_key, then content encryption key and nonce.
+  // RFC 8291: PRK_key = HKDF-Extract(auth_secret, ECDH_secret),
+  // then IKM = HKDF-Expand(PRK_key, WebPush info, 32).
+  const prkKey = crypto.createHmac('sha256', authSecret).update(sharedSecret).digest();
   const authInfo = Buffer.concat([Buffer.from('WebPush: info\0'), clientPublic, serverPublic]);
-  const ikm2 = hkdf(authSecret, sharedSecret, authInfo, 32);
+  const ikm2 = hkdf(Buffer.alloc(0), prkKey, authInfo, 32);
   const prk2 = crypto.createHmac('sha256', salt).update(ikm2).digest();
   const cek = hkdf(salt, prk2, Buffer.from('Content-Encoding: aes128gcm\0'), 16);
   const nonce = hkdf(salt, prk2, Buffer.from('Content-Encoding: nonce\0'), 12);
@@ -79,8 +80,6 @@ function sendPush(subscription, payload, vapidPrivateKey) {
           'TTL': '86400',
           'Urgency': 'high',
           'Authorization': `vapid t=${jwt}, k=${vapidPublicKey(vapidPrivateKey)}`,
-          'Crypto-Key': `dh=${b64u(serverPublic)}`,
-          'Encryption': `salt=${b64u(salt)}`,
         },
       }, res => {
         res.resume();

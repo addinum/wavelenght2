@@ -1,0 +1,9 @@
+{
+  "name": "Wavelength",
+  "short_name": "Wavelength",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0b0b0b",
+  "theme_color": "#0b0b0b",
+  "description": "Anonymous live chat and persistent messaging"
+}
