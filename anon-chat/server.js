@@ -63,6 +63,10 @@ const MIME = {
 };
 
 const server = http.createServer((req, res) => {
+  if (req.method === 'GET' && new URL(req.url, `http://${req.headers.host || 'localhost'}`).pathname === '/api/push/status') {
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+    return res.end(JSON.stringify({ configured: !!process.env.VAPID_PRIVATE_KEY, publicKey: VAPID_PUBLIC_KEY }));
+  }
   if (req.method === 'GET' && new URL(req.url, `http://${req.headers.host || 'localhost'}`).pathname === '/api/push/public-key') {
     res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
     return res.end(JSON.stringify({ publicKey: VAPID_PUBLIC_KEY }));

@@ -167,7 +167,7 @@
 
   // Add your GIPHY Web API key here. GIPHY requires an API key for search.
   // Keep the key in the frontend config because GIPHY's Search endpoint is a client-side API.
-  const GIPHY_API_KEY ="Dw0k6Lxznqo0D34MwiTwmakhcvyHcYqX";
+  const GIPHY_API_KEY = window.GIPHY_API_KEY || '';
   const GIPHY_SEARCH_URL = 'https://api.giphy.com/v1/gifs/search';
 
   function getDeviceId() {
@@ -555,24 +555,24 @@
   }
 
   async function requestNotificationPermission() {
-    if (!('Notification' in window) || !('PushManager' in window)) return false;
-    try {
-      let permission = Notification.permission;
-      if (permission === 'default') permission = await Notification.requestPermission();
-      if (permission !== 'granted') return false;
+    if (!('Notification' in window)) return false;
+    if (Notification.permission === 'granted') {
       await ensurePushSubscription();
       return true;
-    } catch (_) {
-      return false;
     }
+    if (Notification.permission === 'default') {
+      try {
+        const permission = await Notification.requestPermission();
+        if (permission === 'granted') {
+          await ensurePushSubscription();
+          return true;
+        }
+      } catch (_) {}
+    }
+    return Notification.permission === 'granted';
   }
 
-  function updatePushButton() {
-    const b = document.getElementById('enablePushBtn');
-    if (!b || !('Notification' in window)) return;
-    if (Notification.permission === 'granted') b.innerHTML = '<span class="btn-icon">🔔</span> Phone notifications enabled';
-    else if (Notification.permission === 'denied') b.innerHTML = '<span class="btn-icon">🔕</span> Notifications blocked in browser';
-  }
+  window.wavelengthRequestNotificationPermission = requestNotificationPermission;
 
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/sw.js').then(reg => {
@@ -586,22 +586,6 @@
         else { pendingNotificationChatId = event.data.chatId; sendWs('get_contacts'); }
       }
     });
-  }
-
-  const enablePushBtn = document.getElementById('enablePushBtn');
-  if (enablePushBtn) {
-    enablePushBtn.addEventListener('click', async () => {
-      const ok = await requestNotificationPermission();
-      updatePushButton();
-      if (ok) {
-        try {
-          if (Notification.permission === 'granted') {
-            new Notification('Wavelength', { body: 'Phone notifications are enabled.' });
-          }
-        } catch (_) {}
-      }
-    });
-    updatePushButton();
   }
 
   // ---------- WebSocket (single persistent connection for the whole app) ----------

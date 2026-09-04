@@ -2,12 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<link rel="manifest" href="/manifest.webmanifest">
-  <meta name="theme-color" content="#0b0b0b">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="Wavelength">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
 <title>Wavelength — Anonymous Chat</title>
 <link rel="stylesheet" href="style.css">
 </head>
@@ -60,10 +55,6 @@
 
     <button id="inboxBtn" class="btn-secondary btn-inbox">
       <span class="btn-icon">💬</span> Inbox <span id="inboxBadge" class="inbox-badge hidden">0</span> <span class="btn-arrow">→</span>
-    </button>
-
-    <button id="enablePushBtn" class="btn-secondary btn-inbox" type="button">
-      <span class="btn-icon">🔔</span> Enable phone notifications
     </button>
 
     <div class="code-row">
@@ -341,6 +332,14 @@
     });
   }
 })();
+</script>
+<script>
+document.addEventListener('DOMContentLoaded',()=>{
+ const b=document.createElement('button'); b.id='enablePushBtn'; b.type='button'; b.textContent='🔔 Enable Phone Notifications';
+ b.style.cssText='margin-top:12px;padding:10px 14px;border-radius:12px;border:1px solid rgba(255,255,255,.16);background:#151515;color:#fff;font-weight:600;cursor:pointer;';
+ b.onclick=()=>{ if(typeof window.wavelengthRequestNotificationPermission==='function'){ window.wavelengthRequestNotificationPermission(); } else if(window.Notification){ Notification.requestPermission(); } };
+ const host=document.querySelector('#landingScreen')||document.querySelector('main')||document.body; host.appendChild(b);
+});
 </script>
 </body>
 </html>
