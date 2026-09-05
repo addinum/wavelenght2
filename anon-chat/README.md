@@ -74,3 +74,33 @@ Wavelength now supports Web Push notifications for inbox messages. When a contac
 5. Open Wavelength on the phone and press **Find a stranger** once, then allow notifications when the browser asks.
 
 The private VAPID key must stay in Render environment variables and must not be committed to GitHub.
+
+
+## Final mobile tab release
+
+- Home / Inbox / Settings bottom navigation retained.
+- Settings cards are now full-width and responsive on narrow Android screens.
+- Profile editing, avatars, account management, phone notifications, test push, theme toggle, inbox, stranger matching, contacts, chat, GIFs, voice notes, files, calls, replies, reactions, edit/delete, receipts, pagination, and presence are retained.
+- `public/avatars/` is intentionally excluded from this ZIP.
+
+
+## Functional back-button fix
+- Restored the navigation helpers required by Inbox and bottom-tab buttons.
+- Settings, Inbox, contact threads, and stranger chat return to Home on phone Back.
+- Only Home shows the close-app dialog.
+- Existing tab navigation and chat controls are preserved.
+- `public/avatars/` is intentionally excluded.
+
+
+## Final exit-dialog fix
+- Bottom-tab switching no longer creates browser-history entries.
+- A single persistent history sentinel handles Android Back.
+- Settings/Inbox/Chat Back returns to Home without the exit dialog.
+- Home Back alone opens the close-app dialog.
+
+
+## Exit dialog v2
+- Maintains a dedicated browser-history guard after the Home state.
+- Home Back opens the close dialog.
+- Settings, Inbox, and Chat Back return to Home without the dialog.
+- Tab switching remains functional.

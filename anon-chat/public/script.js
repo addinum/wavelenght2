@@ -4,6 +4,7 @@
     searching: document.getElementById('searching'),
     chat: document.getElementById('chat'),
     inbox: document.getElementById('inbox'),
+    settings: document.getElementById('settings'),
     thread: document.getElementById('thread'),
   };
 
@@ -29,6 +30,18 @@
   const contactsSection = document.getElementById('contactsSection');
   const accountBar = document.getElementById('accountBar');
   const accountBarText = document.getElementById('accountBarText');
+  const settingsAccountBtn = document.getElementById('settingsAccountBtn');
+  const settingsAccountAction = document.getElementById('settingsAccountAction');
+  const settingsSignOutBtn = document.getElementById('settingsSignOutBtn');
+  const settingsAccountText = document.getElementById('settingsAccountText');
+  const settingsProfileName = document.getElementById('settingsProfileName');
+  const settingsProfileAccount = document.getElementById('settingsProfileAccount');
+  const settingsAvatarPreview = document.getElementById('settingsAvatarPreview');
+  const saveProfileBtn = document.getElementById('saveProfileBtn');
+  const profileSaveStatus = document.getElementById('profileSaveStatus');
+  const settingsDarkModeToggle = document.getElementById('settingsDarkModeToggle');
+  const bottomNav = document.getElementById('bottomNav');
+  const bottomInboxBadge = document.getElementById('bottomInboxBadge');
   const accountModal = document.getElementById('accountModal');
   const accountModalClose = document.getElementById('accountModalClose');
   const authTabsView = document.getElementById('authTabsView');
@@ -183,11 +196,33 @@
 
   // ---------- Account (optional email login on top of the anonymous system) ----------
   function updateAccountBarDisplay() {
-    if (myAccountEmail) {
-      accountBarText.textContent = `👤 Signed in as ${myAccountEmail}`;
-    } else {
-      accountBarText.textContent = '🔐 Sign in to keep your inbox everywhere';
+    if (accountBarText) {
+      accountBarText.textContent = myAccountEmail
+        ? `👤 Signed in as ${myAccountEmail}`
+        : '🔐 Sign in to keep your inbox everywhere';
     }
+  }
+
+  function updateSettingsAccountUI() {
+    if (!settingsAccountText) return;
+    if (myAccountEmail) {
+      settingsAccountText.textContent = `Signed in as ${myAccountEmail}. Your inbox can follow your account across devices.`;
+      if (settingsAccountAction) settingsAccountAction.textContent = '✎ Manage account';
+      if (settingsSignOutBtn) settingsSignOutBtn.classList.remove('hidden');
+      if (settingsProfileAccount) settingsProfileAccount.textContent = myAccountEmail;
+    } else {
+      settingsAccountText.textContent = 'You are using Wavelength anonymously on this device.';
+      if (settingsAccountAction) settingsAccountAction.textContent = '🔐 Sign in / Create account';
+      if (settingsSignOutBtn) settingsSignOutBtn.classList.add('hidden');
+      if (settingsProfileAccount) settingsProfileAccount.textContent = 'Anonymous account';
+    }
+  }
+
+  function refreshSettingsProfile() {
+    const name = nameInput ? nameInput.value.trim() : '';
+    if (settingsProfileName) settingsProfileName.textContent = name || 'Stranger';
+    if (settingsAvatarPreview) renderAvatarInto(settingsAvatarPreview, getMyAvatarId());
+    updateSettingsAccountUI();
   }
 
   function showAccountModal() {
@@ -213,7 +248,9 @@
     accountModal.classList.add('hidden');
   }
 
-  accountBar.addEventListener('click', showAccountModal);
+  if (accountBar) accountBar.addEventListener('click', showAccountModal);
+  if (settingsAccountBtn) settingsAccountBtn.addEventListener('click', showAccountModal);
+  if (settingsAccountAction) settingsAccountAction.addEventListener('click', showAccountModal);
   accountModalClose.addEventListener('click', hideAccountModal);
   accountModal.addEventListener('click', (e) => {
     if (e.target === accountModal) hideAccountModal();
@@ -263,13 +300,27 @@
     myAccountEmail = null;
     localStorage.removeItem('wavelength_account_email');
     updateAccountBarDisplay();
+    updateSettingsAccountUI();
     hideAccountModal();
+  });
+
+  if (settingsSignOutBtn) settingsSignOutBtn.addEventListener('click', () => signOutBtn.click());
+
+  if (saveProfileBtn) saveProfileBtn.addEventListener('click', () => {
+    const name = nameInput.value.trim();
+    if (name) sendWs('set_name', { name });
+    sendWs('set_avatar', { avatarId: getMyAvatarId() });
+    profileSaveStatus.textContent = '✓ Profile saved';
+    refreshSettingsProfile();
+    setTimeout(() => { if (profileSaveStatus) profileSaveStatus.textContent = ''; }, 2200);
   });
 
   function handleAuthSuccess(msg) {
     myAccountEmail = msg.email;
     localStorage.setItem('wavelength_account_email', msg.email);
     updateAccountBarDisplay();
+    updateSettingsAccountUI();
+    refreshSettingsProfile();
 
     if (msg.deviceId && msg.deviceId !== myDeviceId) {
       // Logging in from a different browser/incognito: switch to the
@@ -376,6 +427,7 @@
     localStorage.setItem(AVATAR_ID_KEY, id);
     sendWs('set_avatar', { avatarId: id });
     renderAvatarPicker();
+    refreshSettingsProfile();
   }
 
   function renderAvatarPicker() {
@@ -423,7 +475,14 @@
   // ---------- Screen switching ----------
   function showScreen(name) {
     Object.values(screens).forEach((s) => s.classList.add('hidden'));
-    screens[name].classList.remove('hidden');
+    if (screens[name]) screens[name].classList.remove('hidden');
+    if (bottomNav) {
+      const visibleTab = ['landing', 'inbox', 'settings'].includes(name);
+      bottomNav.classList.toggle('hidden', !visibleTab);
+      bottomNav.querySelectorAll('.bottom-nav__item').forEach((item) => {
+        item.classList.toggle('bottom-nav__item--active', item.dataset.tab === name);
+      });
+    }
   }
 
   function randomFreq() {
@@ -431,64 +490,158 @@
   }
   setInterval(() => { dialFreq.textContent = randomFreq(); }, 900);
 
-  // ---------- Back button navigation (mobile & desktop) ----------
-  // Every "deeper" screen push one history entry. The single popstate
-  // handler below is the one place that decides where "back" goes,
-  // so the phone's hardware back button and the on-screen back buttons
-  // both funnel through the same logic and stay in sync.
+  // ---------- Android / browser Back button ----------
+  // App navigation uses one persistent browser-history guard:
+  //   Inner screen + Back -> Home
+  //   Home + Back -> Wavelength exit dialog
+  // The dialog's Yes button navigates to Google's homepage. It never
+  // attempts to force-close a normal Chrome tab.
+  let wavelengthBackReady = false;
+  let wavelengthCloseDialog = null;
+  let wavelengthBackBusy = false;
+
   function pushNavState(screenName) {
-    history.pushState({ screen: screenName }, '', location.href);
+    if (!wavelengthBackReady) return;
+    history.replaceState({ wavelengthScreen: screenName, wavelengthApp: true }, '', location.href);
+    ensureWavelengthBackGuard();
   }
 
   function pushChatHistoryState() {
     if (!chatHistoryPushed) {
-      pushNavState('chat');
+      history.pushState({ wavelengthScreen: 'chat', wavelengthApp: true }, '', location.href);
       chatHistoryPushed = true;
     }
   }
 
-  window.addEventListener('popstate', () => {
-    if (!screens.chat.classList.contains('hidden')) {
-      // Live stranger chat: confirm before actually leaving.
-      const reallyLeave = confirm('Leave this chat and go back to the main screen?');
-      if (reallyLeave) {
-        chatHistoryPushed = false;
-        exitChatToLanding();
-      } else {
-        pushChatHistoryState(); // re-trap for next back press
-      }
-      return;
-    }
-
-    if (!screens.thread.classList.contains('hidden')) {
-      // Thread -> Inbox, no confirmation needed.
-      if (mediaRecorder && mediaRecorder.state === 'recording') stopRecording(false);
-      sendWs('close_thread');
-      currentThreadContactId = null;
-      showScreen('inbox');
-      sendWs('get_contacts');
-      return;
-    }
-
-    if (!screens.inbox.classList.contains('hidden')) {
-      // Inbox -> Landing/home.
-      showScreen('landing');
-      return;
-    }
-
-    // On landing/searching already: no pushed state left to intercept,
-    // so the next back press exits to the browser as normal.
-  });
-
   function exitChatToLanding() {
     if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'leave' }));
+      try { ws.send(JSON.stringify({ type: 'leave' })); } catch (_) {}
     }
     emojiPanel.classList.add('hidden');
     showScreen('landing');
     refreshInboxBadge();
+    if (wavelengthBackReady) {
+      history.replaceState({ wavelengthScreen: 'landing', wavelengthApp: true }, '', location.href);
+      ensureWavelengthBackGuard();
+    }
   }
 
+  function isHomeScreen() {
+    return !!(screens.landing && !screens.landing.classList.contains('hidden'));
+  }
+
+  function createCloseDialog() {
+    if (wavelengthCloseDialog) return wavelengthCloseDialog;
+
+    const overlay = document.createElement('div');
+    overlay.id = 'wavelengthCloseDialog';
+    overlay.className = 'wavelength-close-overlay';
+    overlay.innerHTML = `
+      <div class="wavelength-close-dialog" role="dialog" aria-modal="true" aria-labelledby="wavelengthCloseTitle">
+        <div class="wavelength-close-mark">✦</div>
+        <div class="wavelength-close-kicker">WAVELENGTH</div>
+        <h2 id="wavelengthCloseTitle">Do you want to close this app?</h2>
+        <p>Are you sure you want to leave Wavelength?</p>
+        <div class="wavelength-close-actions">
+          <button type="button" class="wavelength-close-no">No</button>
+          <button type="button" class="wavelength-close-yes">Yes</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+
+    const hide = () => {
+      overlay.classList.remove('show');
+      document.body.classList.remove('wavelength-dialog-open');
+    };
+
+    overlay.querySelector('.wavelength-close-no').addEventListener('click', hide);
+    overlay.addEventListener('click', (event) => {
+      if (event.target === overlay) hide();
+    });
+    overlay.querySelector('.wavelength-close-yes').addEventListener('click', () => {
+      // A normal user-opened Chrome tab cannot be force-closed by a website.
+      // Navigate to Chrome's Google homepage instead, as requested.
+      window.location.assign('https://www.google.com/');
+    });
+
+    wavelengthCloseDialog = overlay;
+    return overlay;
+  }
+
+  function showCloseDialog() {
+    const dialog = createCloseDialog();
+    dialog.classList.add('show');
+    document.body.classList.add('wavelength-dialog-open');
+  }
+
+  function ensureWavelengthBackGuard() {
+    if (!wavelengthBackReady) return;
+    if (!history.state || !history.state.wavelengthGuard) {
+      history.pushState({ wavelengthGuard: true, wavelengthApp: true }, '', location.href);
+    }
+  }
+
+  function prepareWavelengthBackGuard() {
+    if (wavelengthBackReady) return;
+    wavelengthBackReady = true;
+
+    // Replace the current page entry with Home, then put one guard entry
+    // above it. Android Chrome Back will therefore fire popstate instead of
+    // immediately leaving the page.
+    history.replaceState({ wavelengthScreen: 'landing', wavelengthApp: true }, '', location.href);
+    history.pushState({ wavelengthGuard: true, wavelengthApp: true }, '', location.href);
+  }
+
+  window.addEventListener('popstate', () => {
+    if (!wavelengthBackReady || wavelengthBackBusy) return;
+    wavelengthBackBusy = true;
+
+    // Decide from the actual visible screen, not from history.state. This
+    // makes the behavior reliable even when chat/thread entries exist.
+    const wasHome = isHomeScreen();
+
+    if (!wasHome) {
+      if (screens.chat && !screens.chat.classList.contains('hidden')) {
+        chatHistoryPushed = false;
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          try { ws.send(JSON.stringify({ type: 'leave' })); } catch (_) {}
+        }
+        emojiPanel.classList.add('hidden');
+      }
+
+      if (screens.thread && !screens.thread.classList.contains('hidden')) {
+        if (mediaRecorder && mediaRecorder.state === 'recording') {
+          try { stopRecording(false); } catch (_) {}
+        }
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          try { ws.send(JSON.stringify({ type: 'close_thread' })); } catch (_) {}
+        }
+        currentThreadContactId = null;
+        sendWs('get_contacts');
+      }
+
+      showScreen('landing');
+      refreshInboxBadge();
+      history.replaceState({ wavelengthScreen: 'landing', wavelengthApp: true }, '', location.href);
+      ensureWavelengthBackGuard();
+    } else {
+      // Home is the only place where Android Back opens the Wavelength dialog.
+      ensureWavelengthBackGuard();
+      showCloseDialog();
+    }
+
+    setTimeout(() => { wavelengthBackBusy = false; }, 120);
+  });
+
+  document.addEventListener('DOMContentLoaded', () => {
+    setTimeout(prepareWavelengthBackGuard, 150);
+  });
+  if (document.readyState !== 'loading') {
+    setTimeout(prepareWavelengthBackGuard, 150);
+  }
+
+  // ---------- Sound + browser notification ----------
   // ---------- Sound + browser notification ----------
   let audioCtx = null;
   function playBeep() {
@@ -634,6 +787,23 @@
   window.wavelengthRequestNotificationPermission = requestNotificationPermission;
   window.wavelengthTestPhonePush = testPhonePush;
 
+  const enablePushBtn = document.getElementById('enablePushBtn');
+  const testPushBtn = document.getElementById('testPushBtn');
+  const pushStatus = document.getElementById('pushStatus');
+  if (enablePushBtn) enablePushBtn.addEventListener('click', async () => {
+    if (pushStatus) pushStatus.textContent = 'Requesting notification permission…';
+    const result = await requestNotificationPermission();
+    if (pushStatus) pushStatus.textContent = result
+      ? '✓ Phone notifications are enabled.'
+      : 'Permission/setup failed. Check Chrome notification settings.';
+  });
+  if (testPushBtn) testPushBtn.addEventListener('click', async () => {
+    if (pushStatus) pushStatus.textContent = 'Sending test notification…';
+    const result = await testPhonePush();
+    if (pushStatus && !result?.ok) pushStatus.textContent = '✕ ' + (result.error || 'Push setup failed.');
+    else if (pushStatus) pushStatus.textContent = '✓ Test sent. Check your phone.';
+  });
+
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/sw.js').then(reg => {
       pushRegistration = reg;
@@ -713,6 +883,8 @@
           myAccountEmail = msg.account.email;
           localStorage.setItem('wavelength_account_email', myAccountEmail);
           updateAccountBarDisplay();
+          updateSettingsAccountUI();
+          refreshSettingsProfile();
         }
         break;
 
@@ -735,6 +907,7 @@
         myAccountEmail = msg.email;
         localStorage.setItem('wavelength_account_email', myAccountEmail);
         updateAccountBarDisplay();
+        updateSettingsAccountUI();
         editSuccess.textContent = 'Saved!';
         editSuccess.classList.remove('hidden');
         editCurrentPassword.value = '';
@@ -1501,11 +1674,13 @@
   // ---------- Inbox rendering ----------
   function updateInboxBadge() {
     const totalUnread = latestContacts.reduce((sum, c) => sum + (c.unreadCount || 0), 0);
-    if (totalUnread > 0) {
-      inboxBadge.textContent = totalUnread > 99 ? '99+' : totalUnread;
-      inboxBadge.classList.remove('hidden');
-    } else {
-      inboxBadge.classList.add('hidden');
+    if (inboxBadge) {
+      inboxBadge.textContent = totalUnread > 99 ? '99+' : String(totalUnread);
+      inboxBadge.classList.toggle('hidden', totalUnread === 0);
+    }
+    if (bottomInboxBadge) {
+      bottomInboxBadge.textContent = totalUnread > 99 ? '99+' : String(totalUnread);
+      bottomInboxBadge.classList.toggle('hidden', totalUnread === 0);
     }
   }
 
@@ -2079,10 +2254,25 @@
   });
 
   // ---------- Inbox / Thread navigation ----------
-  inboxBtn.addEventListener('click', () => {
+  if (inboxBtn) inboxBtn.addEventListener('click', () => {
     showScreen('inbox');
     pushNavState('inbox');
     sendWs('get_contacts');
+  });
+
+  if (bottomNav) bottomNav.querySelectorAll('.bottom-nav__item').forEach((item) => {
+    item.addEventListener('click', () => {
+      const tab = item.dataset.tab;
+      if (tab === 'landing') {
+        showScreen('landing');
+      } else if (tab === 'inbox') {
+        showScreen('inbox');
+        sendWs('get_contacts');
+      } else if (tab === 'settings') {
+        refreshSettingsProfile();
+        showScreen('settings');
+      }
+    });
   });
 
   // On-screen back buttons just trigger a real browser "back" — the
@@ -2453,8 +2643,19 @@
   }
   window.addEventListener('resize', setAppHeight);
 
+  // ---------- Settings theme button ----------
+  if (settingsDarkModeToggle) settingsDarkModeToggle.addEventListener('click', () => {
+    const dark = !document.documentElement.classList.contains('wl-dark');
+    localStorage.setItem('wavelength-theme', dark ? 'dark' : 'light');
+    document.documentElement.classList.toggle('wl-dark', dark);
+    document.body.classList.toggle('wl-dark', dark);
+    settingsDarkModeToggle.textContent = dark ? '☀️ Light Mode' : '🌙 Dark Mode';
+  });
+
   // ---------- Boot ----------
   renderAvatarPicker();
+  refreshSettingsProfile();
+  updateSettingsAccountUI();
   updateAccountBarDisplay();
   connectSocket();
 })();

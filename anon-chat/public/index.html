@@ -41,41 +41,16 @@
     <h1>Wavelength</h1>
     <p class="subhead">Tune in to a stranger. Talk for a minute or an hour. Switch frequency <span class="accent-text">whenever you like</span>.</p>
 
-    <label class="name-field">
-      <span>What should we call you?</span>
-      <input type="search" id="wlHandleInput" name="wl-handle-x7" placeholder="Leave blank to stay Stranger" maxlength="24" autocomplete="off" autocorrect="off" spellcheck="false" data-lpignore="true" data-form-type="other" enterkeyhint="done">
-    </label>
-
-    <div class="avatar-picker">
-      <span class="avatar-picker__label">Choose your avatar</span>
-      <div class="avatar-picker__grid" id="avatarGrid"></div>
-    </div>
-
-    <button id="startBtn" class="btn-primary"><span class="btn-icon">🎙️</span> Find a stranger <span class="btn-arrow">→</span></button>
-
-    <button id="inboxBtn" class="btn-secondary btn-inbox">
-      <span class="btn-icon">💬</span> Inbox <span id="inboxBadge" class="inbox-badge hidden">0</span> <span class="btn-arrow">→</span>
-    </button>
-
-    <div class="code-row">
-      <input type="search" id="wlJoinCodeInput" name="wl-joincode-y3" placeholder="Have a friend code? Enter it" maxlength="12" autocomplete="off" autocorrect="off" spellcheck="false" data-lpignore="true" data-form-type="other" enterkeyhint="go">
-      <button id="codeBtn" class="btn-secondary">Connect</button>
-    </div>
-
-    <div id="pushControls" style="display:flex;flex-direction:column;gap:8px;margin:14px 0 4px;width:100%;">
-      <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center;">
-        <button type="button" id="enablePushBtn" class="btn-secondary">🔔 Enable Phone Notifications</button>
-        <button type="button" id="testPushBtn" class="btn-secondary">🧪 Test Notification</button>
+    <div class="home-actions">
+      <button id="startBtn" class="btn-primary home-find-btn"><span class="btn-icon">🎙️</span> Find a Stranger <span class="btn-arrow">→</span></button>
+      <p class="home-hint">Start an anonymous conversation with someone online.</p>
+      <div class="home-code-row">
+        <input type="search" id="wlJoinCodeInput" name="wl-joincode-y3" placeholder="Friend code" maxlength="12" autocomplete="off" autocorrect="off" spellcheck="false" data-lpignore="true" data-form-type="other" enterkeyhint="go">
+        <button id="codeBtn" class="btn-secondary">Connect</button>
       </div>
-      <div id="pushStatus" style="font-size:12px;opacity:.75;text-align:center;min-height:18px;"></div>
     </div>
 
     <p class="fine-print">By continuing you agree not to share personal contact details. Be kind — someone real is on the other end.</p>
-
-    <button id="accountBar" class="account-bar">
-      <span id="accountBarText">🔐 Sign in to keep your inbox everywhere</span>
-      <span class="account-bar__arrow">→</span>
-    </button>
   </div>
 
   <!-- Saved contacts (stored only in this browser, never on a server) -->
@@ -131,6 +106,84 @@
     </div>
   </div>
 </div>
+
+<!-- ===== SETTINGS SCREEN ===== -->
+<section id="settings" class="screen hidden">
+  <header class="tab-page-header">
+    <div>
+      <span class="tab-kicker">WAVELENGTH</span>
+      <h2>Settings</h2>
+    </div>
+    <button type="button" id="settingsAccountBtn" class="settings-avatar-btn" aria-label="Account">👤</button>
+  </header>
+
+  <div class="settings-scroll">
+    <section class="settings-card profile-card">
+      <div class="settings-card-heading">
+        <div>
+          <span class="settings-eyebrow">PROFILE</span>
+          <h3>Your profile</h3>
+        </div>
+        <span class="settings-card-icon">✦</span>
+      </div>
+      <div class="settings-profile-row">
+        <div class="settings-avatar-preview" id="settingsAvatarPreview"></div>
+        <div class="settings-profile-copy">
+          <strong id="settingsProfileName">Stranger</strong>
+          <span id="settingsProfileAccount">Anonymous account</span>
+        </div>
+      </div>
+      <label class="settings-label">Display name</label>
+      <input class="settings-input" type="search" id="wlHandleInput" name="wl-handle-x7" placeholder="Leave blank to stay Stranger" maxlength="24" autocomplete="off" autocorrect="off" spellcheck="false" data-lpignore="true" data-form-type="other" enterkeyhint="done">
+      <div class="settings-label-row"><span class="settings-label">Avatar</span><span class="settings-mini">Choose one</span></div>
+      <div class="avatar-picker settings-avatar-picker">
+        <div class="avatar-picker__grid" id="avatarGrid"></div>
+      </div>
+      <button type="button" id="saveProfileBtn" class="btn-primary settings-save-btn">Save Profile</button>
+      <p id="profileSaveStatus" class="settings-status"></p>
+    </section>
+
+    <section class="settings-card">
+      <div class="settings-card-heading">
+        <div><span class="settings-eyebrow">NOTIFICATIONS</span><h3>Phone notifications</h3></div>
+        <span class="settings-card-icon">🔔</span>
+      </div>
+      <p class="settings-description">Get notified when someone sends you a message while you are away from Wavelength.</p>
+      <div class="settings-action-row">
+        <button type="button" id="enablePushBtn" class="btn-secondary">🔔 Enable Phone Notifications</button>
+        <button type="button" id="testPushBtn" class="btn-secondary settings-test-btn">🧪 Test</button>
+      </div>
+      <p id="pushStatus" class="settings-status"></p>
+    </section>
+
+    <section class="settings-card">
+      <div class="settings-card-heading">
+        <div><span class="settings-eyebrow">ACCOUNT</span><h3>Account & security</h3></div>
+        <span class="settings-card-icon">🔐</span>
+      </div>
+      <p id="settingsAccountText" class="settings-description">You are using Wavelength anonymously on this device.</p>
+      <button type="button" id="settingsAccountAction" class="btn-secondary">🔐 Sign in / Create account</button>
+      <button type="button" id="settingsSignOutBtn" class="btn-ghost settings-signout hidden">Sign out of this browser</button>
+    </section>
+
+    <section class="settings-card">
+      <div class="settings-card-heading">
+        <div><span class="settings-eyebrow">APPEARANCE</span><h3>Theme</h3></div>
+        <span class="settings-card-icon">◐</span>
+      </div>
+      <button type="button" id="settingsDarkModeToggle" class="btn-secondary">🌙 Dark Mode</button>
+    </section>
+
+    <p class="settings-footer">Wavelength · Anonymous conversations, one frequency at a time.</p>
+  </div>
+</section>
+
+<!-- ===== BOTTOM NAVIGATION ===== -->
+<nav id="bottomNav" class="bottom-nav" aria-label="Main navigation">
+  <button type="button" class="bottom-nav__item bottom-nav__item--active" data-tab="landing" aria-label="Home"><span>⌂</span><small>Home</small></button>
+  <button type="button" class="bottom-nav__item" data-tab="inbox" aria-label="Inbox"><span>◉</span><small>Inbox</small><b id="bottomInboxBadge" class="bottom-nav__badge hidden">0</b></button>
+  <button type="button" class="bottom-nav__item" data-tab="settings" aria-label="Settings"><span>⚙</span><small>Settings</small></button>
+</nav>
 
 <!-- ===== SEARCHING SCREEN ===== -->
 <section id="searching" class="screen hidden">
@@ -323,59 +376,22 @@
 (function () {
   const KEY = "wavelength-theme";
   const button = document.getElementById("wavelengthDarkModeToggle");
+  const settingsButton = document.getElementById("settingsDarkModeToggle");
   function applyDarkMode(dark) {
     document.documentElement.classList.toggle("wl-dark", dark);
     document.body.classList.toggle("wl-dark", dark);
-    if (button) {
-      button.textContent = dark ? "☀️ Light Mode" : "🌙 Dark Mode";
-      button.setAttribute("aria-pressed", String(dark));
-    }
+    const text = dark ? "☀️ Light Mode" : "🌙 Dark Mode";
+    if (button) button.textContent = text;
+    if (settingsButton) settingsButton.textContent = text;
   }
   applyDarkMode(localStorage.getItem(KEY) === "dark");
-  if (button) {
-    button.addEventListener("click", function () {
-      const dark = !document.documentElement.classList.contains("wl-dark");
-      localStorage.setItem(KEY, dark ? "dark" : "light");
-      applyDarkMode(dark);
-    });
-  }
+  if (button) button.addEventListener("click", function () {
+    const dark = !document.documentElement.classList.contains("wl-dark");
+    localStorage.setItem(KEY, dark ? "dark" : "light");
+    applyDarkMode(dark);
+  });
 })();
 </script>
-<script>
-document.addEventListener('DOMContentLoaded', () => {
-  const host = document.querySelector('#pushControls');
-  if (!host) return;
 
-  const status = host.querySelector('#pushStatus');
-  const enableBtn = host.querySelector('#enablePushBtn');
-  const testBtn = host.querySelector('#testPushBtn');
-
-  enableBtn.addEventListener('click', async () => {
-    status.textContent = 'Requesting notification permission…';
-    if (typeof window.wavelengthRequestNotificationPermission !== 'function') {
-      status.textContent = '❌ Push notifications are unavailable.';
-      return;
-    }
-    const result = await window.wavelengthRequestNotificationPermission();
-    status.textContent = result
-      ? '✅ Phone notifications enabled.'
-      : '❌ Permission/setup failed. Check Chrome site notification settings.';
-  });
-
-  testBtn.addEventListener('click', async () => {
-    status.textContent = 'Sending test notification…';
-    if (typeof window.wavelengthTestPhonePush !== 'function') {
-      status.textContent = '❌ Push test is unavailable.';
-      return;
-    }
-    const result = await window.wavelengthTestPhonePush();
-    if (!result?.ok) {
-      status.textContent = '❌ ' + (result.error || 'Push setup failed.');
-    } else {
-      status.textContent = '✅ Test sent. Check your phone notification tray.';
-    }
-  });
-});
-</script>
 </body>
 </html>
