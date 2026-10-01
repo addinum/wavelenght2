@@ -256,6 +256,12 @@ wss.on('connection', (ws) => {
             if (contactWs) send(contactWs, 'presence', { deviceId, online: true });
           });
         }).catch(() => {});
+        // If this deviceId has a saved profile (e.g. from logging into an
+        // account on a fresh browser), send it back so name/avatar restore
+        // too — not just contacts/inbox.
+        db.getProfile(deviceId).then((profile) => {
+          if (profile) send(ws, 'profile_restore', { name: profile.name, avatar: profile.avatar });
+        }).catch(() => {});
         break;
       }
 
@@ -310,14 +316,37 @@ wss.on('connection', (ws) => {
 
       case 'set_name': {
         const clean = String(msg.name || '').slice(0, 24).trim();
-        names.set(ws, clean || 'Stranger');
+        const name = clean || 'Stranger';
+        names.set(ws, name);
+        const deviceId = wsDeviceId.get(ws);
+        if (deviceId) {
+          db.saveProfile(deviceId, name, avatars.get(ws) || 'boy1').catch(() => {});
+          // Push the profile change to the currently connected contact, if any.
+          for (const [contactWs, contactId] of wsDeviceId.entries()) {
+            if (contactWs === ws || contactId === deviceId) continue;
+            db.areContacts(deviceId, contactId).then(isContact => {
+              if (isContact) send(contactWs, 'profile_updated', { deviceId, name, avatar: avatars.get(ws) || 'boy1' });
+            }).catch(() => {});
+          }
+        }
         break;
       }
 
       case 'set_avatar': {
         const avatarId = String(msg.avatarId || '').slice(0, 8).trim();
         const VALID_AVATAR_IDS = new Set(['boy1', 'boy2', 'boy3', 'boy4', 'boy5', 'girl1', 'girl2', 'girl3', 'girl4', 'girl5']);
-        avatars.set(ws, VALID_AVATAR_IDS.has(avatarId) ? avatarId : 'boy1');
+        const avatar = VALID_AVATAR_IDS.has(avatarId) ? avatarId : 'boy1';
+        avatars.set(ws, avatar);
+        const deviceId = wsDeviceId.get(ws);
+        if (deviceId) {
+          db.saveProfile(deviceId, names.get(ws) || 'Stranger', avatar).catch(() => {});
+          for (const [contactWs, contactId] of wsDeviceId.entries()) {
+            if (contactWs === ws || contactId === deviceId) continue;
+            db.areContacts(deviceId, contactId).then(isContact => {
+              if (isContact) send(contactWs, 'profile_updated', { deviceId, name: names.get(ws) || 'Stranger', avatar });
+            }).catch(() => {});
+          }
+        }
         break;
       }
 
@@ -572,6 +601,10 @@ wss.on('connection', (ws) => {
             fromName: String(msg.fromName || 'Contact').slice(0, 40),
             fromAvatar: String(msg.fromAvatar || 'boy1').slice(0, 8)
           });
+        } else {
+          // Give the caller instant feedback instead of a silent "Calling…"
+          // that never resolves.
+          send(ws, 'call_unavailable', { toDeviceId: toId, reason: 'offline' });
         }
         break;
       }

@@ -56,6 +56,14 @@ const messageSchema = new mongoose.Schema({
 });
 
 const Account = mongoose.model('Account', accountSchema);
+const profileSchema = new mongoose.Schema({
+  deviceId: { type: String, required: true, unique: true, index: true },
+  name: { type: String, default: 'Stranger' },
+  avatar: { type: String, default: 'boy1' },
+  updatedAt: { type: Date, default: Date.now },
+});
+
+const Profile = mongoose.model('Profile', profileSchema);
 const Contact = mongoose.model('Contact', contactSchema);
 const Message = mongoose.model('Message', messageSchema);
 
@@ -184,6 +192,32 @@ async function areContacts(idA, idB) {
   }
 }
 
+// ---- Profiles ----
+async function saveProfile(deviceId, name, avatar) {
+  if (!isReady() || !deviceId) return false;
+  try {
+    const cleanName = String(name || '').slice(0, 24).trim() || 'Stranger';
+    const cleanAvatar = String(avatar || 'boy1').slice(0, 8).trim() || 'boy1';
+    await Profile.findOneAndUpdate(
+      { deviceId },
+      { $set: { name: cleanName, avatar: cleanAvatar, updatedAt: new Date() } },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+    return true;
+  } catch (err) {
+    console.error('saveProfile failed:', err.message);
+    return false;
+  }
+}
+
+async function getProfile(deviceId) {
+  if (!isReady() || !deviceId) return null;
+  try {
+    const p = await Profile.findOne({ deviceId }).lean();
+    return p ? { name: p.name || 'Stranger', avatar: p.avatar || 'boy1', updatedAt: p.updatedAt } : null;
+  } catch (err) { return null; }
+}
+
 // ---- Contacts ----
 async function saveContactPair(idA, nameA, avatarA, idB, nameB, avatarB) {
   if (!isReady()) return false;
@@ -255,6 +289,11 @@ async function getContacts(ownerId) {
     const contacts = await Contact.find({ ownerId }).lean();
     const results = [];
     for (const c of contacts) {
+      const liveProfile = await getProfile(c.contactId);
+      if (liveProfile) {
+        c.contactName = liveProfile.name;
+        c.contactAvatar = liveProfile.avatar;
+      }
       const unreadCount = await Message.countDocuments({
         fromId: c.contactId,
         toId: ownerId,
@@ -398,6 +437,8 @@ async function toggleReaction(messageId, userId, emoji) {
   try {
     const msg = await Message.findById(messageId);
     if (!msg) return null;
+    // Only the two people in this conversation may react to it.
+    if (msg.fromId !== userId && msg.toId !== userId) return null;
     const idx = (msg.reactions || []).findIndex(r => r.userId === userId);
     if (idx >= 0 && msg.reactions[idx].emoji === emoji) msg.reactions.splice(idx, 1);
     else if (idx >= 0) msg.reactions[idx].emoji = emoji;
@@ -415,6 +456,8 @@ async function touchContactLastSeen(deviceId) {
 
 module.exports = {
   areContacts,
+  saveProfile,
+  getProfile,
   connect,
   isReady,
   createAccount,

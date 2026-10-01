@@ -245,7 +245,6 @@
       <span class="wa-header__title" id="threadWithLabel">Contact</span>
       <span class="wa-header__presence" id="threadPresenceLabel">Offline</span>
     </div>
-    <button type="button" id="fileBtn" class="wa-file-btn" aria-label="Send document" title="Send document">📎</button>
     <button type="button" id="callBtn" class="wa-call-btn" aria-label="Call contact" title="Voice call">📞</button>
     <input type="file" id="fileInput" class="hidden" aria-hidden="true">
   </header>
@@ -270,6 +269,7 @@
   </div>
 
   <form id="threadForm" class="wa-input-bar" autocomplete="off">
+    <button type="button" id="fileBtn" class="wa-file-btn" aria-label="Send document" title="Send document">📎</button>
     <div id="threadInput" class="thread-input" contenteditable="true" role="textbox" aria-label="Message" data-placeholder="Message" inputmode="text" spellcheck="false"></div>
     <button type="button" id="gifBtn" class="wa-gif-btn" aria-label="Choose GIF" title="GIF">GIF</button>
     <button type="button" id="micBtn" class="wa-mic" aria-label="Record voice note">🎤</button>
@@ -331,16 +331,19 @@
 </div>
 
 <div id="activeCallBar" class="call-bar hidden" aria-label="Active call">
-  <button type="button" id="callBarMain" class="call-bar__main" aria-expanded="false">
-    <div class="call-bar__info">
-      <div class="call-bar__avatar" id="activeCallAvatar">?</div>
-      <div class="call-bar__details">
-        <strong id="activeCallName">Contact</strong>
-        <span id="activeCallStatus">Calling…</span>
+  <div class="call-bar__row">
+    <button type="button" id="callBarMain" class="call-bar__main" aria-expanded="false">
+      <div class="call-bar__info">
+        <div class="call-bar__avatar" id="activeCallAvatar">?</div>
+        <div class="call-bar__details">
+          <strong id="activeCallName">Contact</strong>
+          <span id="activeCallStatus">Calling…</span>
+        </div>
       </div>
-    </div>
-    <span class="call-bar__chevron" aria-hidden="true">⌃</span>
-  </button>
+      <span class="call-bar__chevron" aria-hidden="true">⌃</span>
+    </button>
+    <button type="button" id="callBarQuickHangup" class="call-bar__quick-hangup" title="End call" aria-label="End call">☎</button>
+  </div>
   <div class="call-bar__controls" id="callBarControls">
     <div class="call-stat">
       <span class="call-stat__label">Duration</span>

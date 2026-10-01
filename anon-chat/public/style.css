@@ -996,9 +996,33 @@ h1 {
 .wa-bubble-row {
   display: flex;
   padding: 0 6px;
+  margin-bottom: 0;
+  transition: margin-bottom 0.1s;
+  position: relative;
+}
+.wa-bubble-row--has-reaction {
+  margin-bottom: 16px; /* reserves room for the reaction chip hanging below the bubble */
 }
 .wa-bubble-row--me { justify-content: flex-end; }
 .wa-bubble-row--them { justify-content: flex-start; }
+
+.wa-bubble {
+  touch-action: pan-y; /* let vertical scroll pass through untouched; we handle horizontal ourselves */
+  transition: transform 0.15s ease-out;
+  will-change: transform;
+}
+
+.wa-swipe-reply-icon {
+  position: absolute;
+  left: 4px;
+  top: 50%;
+  transform: translateY(-50%) scale(0.6);
+  opacity: 0;
+  font-size: 18px;
+  color: var(--accent-2, #6ecbff);
+  pointer-events: none;
+  transition: opacity 0.1s linear;
+}
 
 .wa-bubble {
   max-width: 78%;
@@ -1041,6 +1065,30 @@ h1 {
   float: right;
 }
 .wa-bubble--them .wa-bubble__time { color: var(--text-faint); }
+
+/* WhatsApp-style "emoji only" message: no bubble chrome, just a big emoji
+   with a small timestamp underneath. */
+.wa-bubble--jumbo-emoji {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  padding: 2px 4px !important;
+}
+.wa-bubble--jumbo-emoji .wa-bubble__text {
+  font-size: 46px;
+  line-height: 1.15;
+  display: block;
+}
+.wa-bubble--jumbo-emoji .wa-bubble__time {
+  color: var(--text-faint) !important;
+  float: none;
+  display: block;
+  text-align: right;
+  margin-top: 0;
+}
+.wa-bubble--jumbo-emoji .wa-tick { color: var(--text-faint) !important; text-shadow: none !important; }
+.wa-bubble--jumbo-emoji .wa-tick--read { color: var(--accent-2) !important; text-shadow: none !important; }
 
 .wa-tick {
   display: inline-block;
@@ -1885,7 +1933,8 @@ button:focus-visible, input:focus-visible {
   transform: translateX(-50%);
   z-index: 95;
   width: min(470px, calc(100% - 20px));
-  display: block;
+  display: flex;
+  flex-direction: column;
   border: 1px solid var(--line);
   border-radius: 18px;
   background: var(--panel-solid);
@@ -1893,8 +1942,13 @@ button:focus-visible, input:focus-visible {
   box-shadow: 0 12px 40px rgba(0,0,0,.45), 0 0 24px var(--accent-glow);
   overflow: hidden;
 }
+.call-bar__row {
+  display: flex;
+  align-items: stretch;
+}
 .call-bar__main {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   border: 0;
   background: transparent;
   color: inherit;
@@ -1906,6 +1960,18 @@ button:focus-visible, input:focus-visible {
   padding: 9px 12px;
   text-align: left;
 }
+.call-bar__quick-hangup {
+  flex-shrink: 0;
+  width: 52px;
+  border: 0;
+  border-left: 1px solid rgba(255,255,255,.08);
+  background: rgba(255,59,92,.14);
+  color: #ff5c7a;
+  font-size: 19px;
+  cursor: pointer;
+  transform: rotate(135deg);
+}
+.call-bar__quick-hangup:active { background: rgba(255,59,92,.28); }
 .call-bar__info { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .call-bar__avatar { width: 40px; height: 40px; }
 .call-bar__details { min-width: 0; }
