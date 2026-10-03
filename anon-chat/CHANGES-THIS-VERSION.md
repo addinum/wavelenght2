@@ -74,3 +74,69 @@ will correctly space for.
 Brought back the plain background from before, per your preference.
 
 ## Swipe-to-reply — confirmed working, no changes needed
+
+---
+
+# Call-interruption fix (this pass)
+
+## The problem
+When you're on a call, switch to another app, and the phone locks, audio
+stops reaching the other person after ~30 seconds — even though the call
+UI might still look connected.
+
+## Why this happens
+This is a known limitation of running real-time audio in a browser tab
+(not a native app): Chrome on Android aggressively throttles or suspends
+background tabs to save battery, unless the tab gives Chrome a clear
+signal that it's carrying genuine active media (like a call or music).
+Without that signal, Chrome can't tell a silent background tab apart from
+one carrying your call audio, and treats both the same way.
+
+## What I added
+1. **Media Session API** — the primary fix. Tells Chrome "this tab has an
+   active call right now," which is what makes Chrome exempt it from
+   background throttling, the same way it keeps music/podcast tabs
+   playing audio when backgrounded. Activates the moment a call connects.
+2. **Wake Lock API** — keeps the screen from auto-locking while you're
+   actively looking at the call screen in the foreground. Won't help once
+   you've already switched to another app (the wake lock is released as
+   soon as the tab is hidden, by design), but stops the most common
+   trigger — the screen timing out on its own mid-call.
+3. **Visibility-change recovery** — when you come back to the app mid-call,
+   it now immediately: re-acquires the wake lock, resumes the audio
+   element if the browser paused it, and checks the connection's health —
+   restarting ICE right away if it's degraded, instead of waiting for the
+   normal passive recovery timers (which may have been throttled while
+   the tab was in the background).
+
+## Honest limits — this won't be 100% on every phone
+These are the strongest fixes available to a web app without becoming a
+native app with its own persistent background service, but some phones
+will still behave differently:
+- **Some Android phone brands (Xiaomi, Oppo, Vivo, Samsung, and others)
+  ship extra-aggressive battery managers** that can still kill background
+  browser tabs regardless of what the page does. If this keeps happening
+  on a specific phone, check that phone's battery settings and set Chrome
+  to "Unrestricted" / disable battery optimization for Chrome specifically.
+- **"Add to Home Screen"** (installing Wavelength as a PWA, via Chrome's
+  menu) tends to get noticeably better background treatment from Android
+  than a tab buried in a normal browser session — worth trying if issues
+  persist.
+- **iOS Safari is stricter still** — if anyone in your group is on an
+  iPhone, background call audio may be more limited there regardless of
+  these fixes; this is an Apple/WebKit platform restriction, not
+  something fixable from the web app side.
+
+## Tested before delivery
+- Full calling regression suite re-run: contact-restricted invites, call
+  signal relay, call end relay, non-contact calls correctly blocked — all
+  still pass after these additions
+- Verified all new functions (wake lock, media session, visibility
+  listener) are declared exactly once with no duplicates, and wired into
+  the correct call lifecycle points (call start, call connect, call end)
+- All 125 HTML↔JS element references still match
+- Server boots cleanly, all static files (including avatars) still serve
+  correctly
+- Everything is feature-detected (`'wakeLock' in navigator`, `'mediaSession'
+  in navigator`) and wrapped in try/catch, so browsers that don't support
+  these APIs just silently skip them rather than breaking anything

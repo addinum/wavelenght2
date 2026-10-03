@@ -162,6 +162,7 @@
   let callStatsTimer = null;
   let callHistory = [];
   let activeCallDirection = 'outgoing';
+  let wakeLockSentinel = null;
   loadCallHistory();
   const rtcConfig = {
     iceServers: [
@@ -1950,6 +1951,61 @@
     if (callQuality) callQuality.textContent = 'Good';
     callMuteBtn.setAttribute('aria-pressed', String(isCallMuted));
     updateSpeakerButton();
+    acquireWakeLock();
+  }
+
+  // ---------- Keeping calls alive when the phone locks / app is backgrounded ----------
+  // Two browser mechanisms matter here:
+  // 1. Wake Lock: stops the screen from auto-locking while this tab is in the
+  //    foreground. Doesn't help once the user switches apps (the spec revokes
+  //    it as soon as the page is hidden), but prevents the most common case —
+  //    the screen timing out on its own mid-call.
+  // 2. Media Session: tells Chrome "this tab has a real, active media session
+  //    right now," which is what makes Chrome exempt a backgrounded tab from
+  //    its normal throttling/suspension of audio. Without this, Chrome has no
+  //    way to tell a silent background tab apart from one actively carrying
+  //    call audio, and treats both the same way after ~30s.
+  async function acquireWakeLock() {
+    if (!('wakeLock' in navigator)) return;
+    try {
+      wakeLockSentinel = await navigator.wakeLock.request('screen');
+      wakeLockSentinel.addEventListener('release', () => { wakeLockSentinel = null; });
+    } catch (_) {
+      // Can fail if the tab isn't visible yet or the OS denies it — not fatal,
+      // Media Session below is the more important mechanism for backgrounding.
+    }
+  }
+
+  function releaseWakeLock() {
+    if (wakeLockSentinel) {
+      try { wakeLockSentinel.release(); } catch (_) {}
+      wakeLockSentinel = null;
+    }
+  }
+
+  function setCallMediaSession(name) {
+    if (!('mediaSession' in navigator)) return;
+    try {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: `Call with ${name || 'contact'}`,
+        artist: 'Wavelength',
+      });
+      navigator.mediaSession.playbackState = 'playing';
+      navigator.mediaSession.setActionHandler('pause', () => {});
+      navigator.mediaSession.setActionHandler('play', () => {});
+      navigator.mediaSession.setActionHandler('stop', () => endCall(true));
+    } catch (_) {}
+  }
+
+  function clearCallMediaSession() {
+    if (!('mediaSession' in navigator)) return;
+    try {
+      navigator.mediaSession.playbackState = 'none';
+      navigator.mediaSession.metadata = null;
+      navigator.mediaSession.setActionHandler('pause', null);
+      navigator.mediaSession.setActionHandler('play', null);
+      navigator.mediaSession.setActionHandler('stop', null);
+    } catch (_) {}
   }
 
   function hideCallUI() {
@@ -1959,6 +2015,8 @@
     callBarMain.setAttribute('aria-expanded', 'false');
     stopCallTimer();
     stopCallQualityMonitor();
+    releaseWakeLock();
+    clearCallMediaSession();
   }
 
   function setCallConnected() {
@@ -1967,6 +2025,8 @@
     activeCallStatus.textContent = 'Connected';
     startCallTimer();
     startCallQualityMonitor();
+    setCallMediaSession(activeCallContactName);
+    acquireWakeLock();
   }
 
   const isMobileCallDevice = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
@@ -2250,6 +2310,32 @@
     activeCallContactId = null;
     hideCallUI();
   }
+
+  // When the phone locks or the user switches away mid-call, Chrome revokes
+  // the wake lock and can throttle/suspend the background tab — including
+  // pausing timers (so our normal disconnect-recovery logic may not fire
+  // promptly) and occasionally pausing the <audio> element outright. This
+  // recovers from both the moment the user comes back to the app.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible' || !activeCallContactId) return;
+
+    acquireWakeLock();
+
+    if (remoteAudio.paused && remoteAudio.srcObject) {
+      remoteAudio.play().catch(() => {});
+    }
+
+    if (peerConnection) {
+      const state = peerConnection.connectionState;
+      const iceState = peerConnection.iceConnectionState;
+      const degraded = state === 'disconnected' || state === 'failed' || iceState === 'disconnected' || iceState === 'failed';
+      if (degraded && !callReconnectInProgress) {
+        callReconnectInProgress = true;
+        try { peerConnection.restartIce(); } catch (_) {}
+        setTimeout(() => { callReconnectInProgress = false; }, 3000);
+      }
+    }
+  });
 
   async function handleCallSignal(msg) {
     if (!activeCallContactId || msg.fromId !== activeCallContactId || !msg.data) return;
